@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>TruthGuard AI</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>TruthGuard AI</h1>
+            <p id="page-title">Analyzing current page...</p>
+        </header>
+
+        <div id="loading-view">
+            <div class="loader"></div>
+            <p>Analyzing article, please wait...</p>
+        </div>
+
+        <div id="results-view" class="hidden">
+            <div class="card">
+                <h3>Source Analysis</h3>
+                <div id="source-analysis-content"></div>
+            </div>
+            <div class="card">
+                <h3>Credibility Score & Summary</h3>
+                <div id="initial-analysis-content"></div>
+            </div>
+            <div class="card">
+                <h3>Fact-Check Results</h3>
+                <div id="fact-check-content"></div>
+            </div>
+        </div>
+
+        <div id="error-view" class="hidden">
+            <p>Could not analyze this page. Please try a different article.</p>
+        </div>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>

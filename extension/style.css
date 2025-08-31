@@ -1,0 +1,142 @@
+/* style.css */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+
+body {
+    font-family: 'Inter', sans-serif;
+    background-color: #f0f2f5;
+    color: #1c1e21;
+    margin: 0;
+    padding: 20px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+}
+
+.container {
+    width: 100%;
+    max-width: 700px;
+    background: #ffffff;
+    padding: 30px;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+header {
+    text-align: center;
+    margin-bottom: 25px;
+    border-bottom: 1px solid #e0e0e0;
+    padding-bottom: 20px;
+}
+
+header h1 {
+    font-size: 2.5em;
+    color: #0d1117;
+    margin: 0;
+}
+
+header p {
+    font-size: 1.1em;
+    color: #555;
+    margin-top: 5px;
+}
+
+textarea {
+    width: 100%;
+    height: 150px;
+    padding: 15px;
+    border-radius: 8px;
+    border: 1px solid #ccc;
+    font-size: 1em;
+    margin-bottom: 15px;
+    box-sizing: border-box;
+    resize: vertical;
+}
+
+button {
+    width: 100%;
+    padding: 15px;
+    background-color: #1877f2;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 1.1em;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+button:hover {
+    background-color: #166fe5;
+}
+
+button:disabled {
+    background-color: #a0a0a0;
+    cursor: not-allowed;
+}
+
+.hidden {
+    display: none;
+}
+
+#results-container {
+    margin-top: 30px;
+}
+
+#results-container h2 {
+    text-align: center;
+    color: #0d1117;
+    margin-bottom: 20px;
+}
+
+.score-card, .explanation-card, .points-card {
+    background-color: #f7f8fa;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 15px;
+}
+
+.score-card h3, .explanation-card h3, .points-card h3 {
+    margin-top: 0;
+    color: #333;
+    border-bottom: 1px solid #ddd;
+    padding-bottom: 10px;
+    margin-bottom: 15px;
+}
+
+#score {
+    font-size: 3em;
+    font-weight: 700;
+    text-align: center;
+    margin: 0;
+    color: #e63946; /* Default to red */
+}
+
+#analysis-points {
+    list-style-type: none;
+    padding: 0;
+}
+
+#analysis-points li {
+    padding: 10px;
+    border-bottom: 1px solid #e8e8e8;
+}
+
+#analysis-points li:last-child {
+    border-bottom: none;
+}
+
+.category-badge {
+    display: inline-block;
+    padding: 3px 8px;
+    border-radius: 12px;
+    font-size: 0.8em;
+    font-weight: 600;
+    margin-right: 10px;
+    color: white;
+}
+
+.factcheck { background-color: #007bff; }
+.language { background-color: #fd7e14; }
+.sourcebias { background-color: #6f42c1; }
