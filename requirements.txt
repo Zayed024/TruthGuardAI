@@ -1,7 +1,19 @@
+
+#ffmpeg
+
 fastapi 
 uvicorn[standard]
 google-generativeai
 python-dotenv
 tldextract
 httpx
+
 youtube-transcript-api
+
+yt-dlp
+insanely-fast-whisper
+torch torchvision torchaudio
+pydub
+transformers
+opencv-python
+Pillow

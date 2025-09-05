@@ -42,6 +42,11 @@ header h1 {
     border-bottom: 1px solid #eef0f2;
     display: flex;
     align-items: center;
+    gap: 8px;
+}
+
+.card-header svg {
+    color: #555;
 }
 .summary {
     font-size: 0.9em;
@@ -95,11 +100,23 @@ header h1 {
     margin-bottom: 30px;
 }
 /* Source Analysis */
+
+.source-analysis-grid {
+    display: flex;
+    justify-content: space-around;
+    text-align: center;
+    margin-bottom: 16px;
+}
+
+.source-item {
+    font-size: 0.9em;
+}
+
 .bias-meter {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 12px;
+    margin-bottom: 4px;
 }
 .bias-meter__label {
     font-size: 0.8em;
@@ -133,6 +150,7 @@ header h1 {
     border-radius: 12px;
     font-weight: 600;
     color: #fff;
+    font-size: 0.9em;
 }
 /* Fact Checks */
 .fact-check-item {
@@ -174,4 +192,39 @@ header h1 {
 @keyframes spin {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
+}
+
+.visual-item {
+    margin-bottom: 16px;
+    border-bottom: 1px solid #eef0f2;
+    padding-bottom: 12px;
+}
+.visual-item:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+}
+.visual-item img {
+    width: 100%;
+    border-radius: 6px;
+    margin-bottom: 8px;
+}
+.visual-item p {
+    font-size: 0.85em;
+    line-height: 1.5;
+    margin: 0;
+}
+
+.button-link {
+    display: block;
+    padding: 12px;
+    background-color: #1877f2;
+    color: white;
+    text-align: center;
+    text-decoration: none;
+    border-radius: 8px;
+    font-weight: 600;
+    transition: background-color 0.2s;
+}
+.button-link:hover {
+    background-color: #166fe5;
 }
