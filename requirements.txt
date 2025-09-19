@@ -12,7 +12,9 @@ youtube-transcript-api
 
 yt-dlp
 insanely-fast-whisper
-torch torchvision torchaudio
+torch 
+torchvision 
+torchaudio
 pydub
 transformers
 opencv-python
