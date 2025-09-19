@@ -129,6 +129,7 @@ function displayResults(data) {
     const gaugeFill = document.querySelector('.score-gauge__fill');
     const scoreText = document.getElementById('score-text');
     
+    
     // Calculate rotation (0 score = -90deg, 100 score = 90deg)
     const rotation = (score / 100) * 180 - 90;
     gaugeFill.style.transform = `rotate(${rotation}deg)`;
@@ -155,6 +156,14 @@ function displayResults(data) {
     else if (factuality.includes('mixed')) factualityRating.style.background = '#ffc107';
     else factualityRating.style.background = '#dc3545';
 
+     const domainAge = document.getElementById('domain-age');
+    if (data.source_analysis.domain_age && data.source_analysis.domain_age !== "Unknown") {
+        domainAge.textContent = data.source_analysis.domain_age;
+        domainAge.style.background = '#6c757d'; // A neutral gray color
+    } else {
+        domainAge.textContent = "Unknown";
+        domainAge.style.background = '#6c757d';
+    }
     // ---- 3. Interactive Fact Checks ----
     const factCheckContent = document.getElementById('fact-check-content');
     factCheckContent.innerHTML = ''; // Clear previous results

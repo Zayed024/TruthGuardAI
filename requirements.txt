@@ -17,3 +17,14 @@ pydub
 transformers
 opencv-python
 Pillow
+
+#for model training
+numpy 
+pandas 
+scikit-learn 
+pip install thundersvm #for gpu support
+ cmake
+ dlib
+
+
+prettytable

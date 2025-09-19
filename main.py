@@ -13,11 +13,26 @@ from urllib.parse import urlparse, parse_qs,quote_plus
 import io
 from youtube_transcript_api import YouTubeTranscriptApi, _errors
 from PIL import Image 
-
+import whois
+from datetime import datetime
 from video_analyzer import analyze_video_url,get_visual_context
+import joblib
+#from youtube_transcript_api.exceptions import TranscriptsDisabled, NoTranscriptFound
 
 app = FastAPI()
 load_dotenv()
+
+
+try:
+    source_model = joblib.load("training/model.joblib")
+    vectorizer = joblib.load("training/vectorizer.joblib")
+    mlb = joblib.load("training/mlb.joblib")
+    print("✅Custom Source Reliability model loaded successfully.")
+except FileNotFoundError:
+    print("⚠️ Warning: Model files (.joblib) not found. Source analysis will fail.")
+    source_model = None
+    vectorizer = None
+    mlb = None
 
 # CORS
 origins = ["*"]
@@ -63,9 +78,48 @@ safety_settings = {
     HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
     HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
 }
+
+def predict_source_reliability(domain: str):
+    if not all([source_model, vectorizer, mlb]):
+        return "N/A", "N/A"
+    try:
+        processed_domain = vectorizer.transform([domain])
+        prediction_binarized = source_model.predict(processed_domain)
+        prediction_labels = mlb.inverse_transform(prediction_binarized)
+        
+        if prediction_labels and prediction_labels[0]:
+            # The tuple is (fact, bias) based on how we trained it
+            fact_pred, bias_pred = prediction_labels[0]
+            return bias_pred.title(), fact_pred.title()
+        else:
+           
+            return "Not Rated", "Not Rated"
+    except Exception as e:
+        print(f"Model prediction failed: {e}")
+        return "Error", "Error"
+
+
 # --- Analysis ---
 def run_full_analysis(text: str, url: str):
     domain = tldextract.extract(url).registered_domain
+
+    bias_from_model, factuality_from_model = predict_source_reliability(domain)
+
+    try:
+        domain_info = whois.whois(domain)
+        creation_date = domain_info.creation_date
+        # Handle if creation_date is a list
+        if isinstance(creation_date, list):
+            creation_date = creation_date[0]
+
+        # Calculate domain age
+        if creation_date:
+            age_days = (datetime.now() - creation_date).days
+            source_age = f"{age_days // 365} years, {(age_days % 365) // 30} months old"
+        else:
+            source_age = "Unknown"
+    except Exception:
+        source_age = "Unknown"
     full_prompt = f"""
     Analyze the following text and its source domain. Provide a multi-part analysis. Use '|||' as a separator between each part.
 
@@ -96,7 +150,11 @@ def run_full_analysis(text: str, url: str):
     claims_raw = parts[4].split('\n')
     claims_to_check = [claim.strip() for claim in claims_raw if len(claim.strip().split()) > 1 and "PART 5" not in claim]
     initial_analysis = {"credibility_score": score, "explanation": explanation_clean}
-    source_analysis = {"political_bias": bias_clean, "factuality_rating": factuality_clean}
+    source_analysis = {
+        "political_bias": bias_from_model,
+        "factuality_rating": bias_from_model,
+        "domain_age": source_age # New data point
+    }
     return initial_analysis, source_analysis, claims_to_check
 
 # --- Fact check ---
