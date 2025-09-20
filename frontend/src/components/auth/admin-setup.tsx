@@ -4,8 +4,10 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { ShieldCheck, AlertTriangle, CheckCircle } from 'lucide-react';
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
-import { toast } from 'sonner@2.0.3';
+import { db, auth } from '../../utils/firebase';
+import { collection, getDocs, addDoc, query, where } from 'firebase/firestore';
+import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { toast } from 'sonner';
 
 interface AdminSetupProps {
   onBack: () => void;
@@ -25,18 +27,11 @@ export function AdminSetup({ onBack, onAdminCreated }: AdminSetupProps) {
 
   const checkExistingAdmins = async () => {
     try {
-      const serverUrl = `https://${projectId}.supabase.co/functions/v1/make-server-cd4019c8`;
-      const response = await fetch(`${serverUrl}/admin/exists`, {
-        headers: {
-          'Authorization': `Bearer ${publicAnonKey}`,
-          'Content-Type': 'application/json'
-        }
-      });
+      const adminsRef = collection(db, 'admins');
+      const q = query(adminsRef, where('isAdmin', '==', true));
+      const querySnapshot = await getDocs(q);
 
-      if (response.ok) {
-        const data = await response.json();
-        setHasExistingAdmins(data.hasAdmins);
-      }
+      setHasExistingAdmins(!querySnapshot.empty);
     } catch (error) {
       console.error('Failed to check existing admins:', error);
       setHasExistingAdmins(false);
@@ -48,46 +43,56 @@ export function AdminSetup({ onBack, onAdminCreated }: AdminSetupProps) {
     setIsLoading(true);
 
     try {
-      const serverUrl = `https://${projectId}.supabase.co/functions/v1/make-server-cd4019c8`;
-      
-      const response = await fetch(`${serverUrl}/auth/admin/signup`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${publicAnonKey}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ email, password, adminKey })
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        if (response.status === 409) {
-          // Handle existing user case
-          toast.error(data.error || 'User already exists');
-          if (data.suggestion) {
-            toast.info(data.suggestion);
-          }
-        } else if (response.status === 403) {
-          toast.error('Invalid admin setup key');
-        } else {
-          toast.error(data.error || 'Failed to create admin account');
-        }
+      // Validate admin setup key
+      if (adminKey !== 'truthguard-admin-2024') {
+        toast.error('Invalid admin setup key');
         return;
       }
 
-      toast.success(data.message || 'Admin account created successfully!');
-      
+      // Check if user already exists in Firebase Auth
+      const usersRef = collection(db, 'users');
+      const q = query(usersRef, where('email', '==', email));
+      const existingUsers = await getDocs(q);
+
+      if (!existingUsers.empty) {
+        toast.error('User already exists');
+        return;
+      }
+
+      // Create Firebase Auth user account first
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+
+      // Create admin user in Firestore
+      await addDoc(usersRef, {
+        uid: userCredential.user.uid,
+        email: email,
+        isAdmin: true,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      });
+
+      toast.success('Admin account created successfully!');
+
       // Clear form
       setEmail('');
       setPassword('');
       setAdminKey('');
-      
+
       onAdminCreated();
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Admin setup error:', error);
-      toast.error('Network error: Please check your connection and try again');
+
+      // Handle specific Firebase errors
+      if (error.code === 'auth/email-already-in-use') {
+        toast.error('An account with this email already exists');
+      } else if (error.code === 'auth/weak-password') {
+        toast.error('Password is too weak. Please choose a stronger password');
+      } else if (error.code === 'auth/invalid-email') {
+        toast.error('Invalid email address');
+      } else {
+        toast.error('Network error: Please check your connection and try again');
+      }
     } finally {
       setIsLoading(false);
     }

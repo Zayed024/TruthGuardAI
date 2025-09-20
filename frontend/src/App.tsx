@@ -13,8 +13,9 @@ import { TrendsDashboard } from './components/dashboard/trends-dashboard';
 import { MyHistory } from './components/dashboard/my-history';
 import { AdminDashboard } from './components/admin/admin-dashboard';
 import { Toaster } from './components/ui/sonner';
-import { toast } from 'sonner@2.0.3';
-import { projectId } from './utils/supabase/info';
+import { toast } from 'sonner';
+import { db } from './utils/firebase';
+import { collection, getDocs, query, where } from 'firebase/firestore';
 
 type Page = 
   | 'home' 
@@ -32,7 +33,7 @@ type Page =
   | 'privacy';
 
 function AppContent() {
-  const { user, loading, signUp, signIn, signInWithGoogle, signOut } = useAuth();
+  const { user, loading, signUp, signIn, signInWithGoogle, logout } = useAuth();
   const [currentPage, setCurrentPage] = useState<Page>('home');
 
   const handleLogin = async (email: string, password: string) => {
@@ -62,7 +63,7 @@ function AppContent() {
       await signInWithGoogle();
       setCurrentPage('analysis');
       toast.success('Successfully signed in with Google!');
-      toast.info('To enable Google login, please configure OAuth in Supabase dashboard. Visit: https://supabase.com/docs/guides/auth/social-login/auth-google');
+      toast.info('To enable Google login, please configure OAuth in Firebase console. Visit: https://firebase.google.com/docs/auth/web/google-signin');
     } catch (error) {
       console.error('Google auth error:', error);
       toast.error(error instanceof Error ? error.message : 'Google authentication failed');
@@ -71,36 +72,25 @@ function AppContent() {
 
   const handleAdminLogin = async (email: string, password: string) => {
     try {
-      const signInResult = await signIn(email, password);
-      
-      // Check admin status immediately after login
-      if (signInResult && signInResult.session?.access_token) {
-        try {
-          const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-cd4019c8/auth/profile`, {
-            headers: {
-              'Authorization': `Bearer ${signInResult.session.access_token}`,
-              'Content-Type': 'application/json'
-            }
-          });
-          
-          if (response.ok) {
-            const userData = await response.json();
-            if (userData.user?.isAdmin) {
-              setCurrentPage('admin');
-              toast.success('Admin access granted');
-            } else {
-              toast.error('Admin access denied - insufficient permissions');
-              await signOut();
-            }
-          } else {
-            toast.error('Failed to verify admin permissions');
-            await signOut();
-          }
-        } catch (profileError) {
-          console.error('Failed to check admin status:', profileError);
-          toast.error('Failed to verify admin permissions');
-          await signOut();
+      await signIn(email, password);
+
+      // Check admin status using Firebase Firestore
+      try {
+        const usersRef = collection(db, 'users');
+        const q = query(usersRef, where('email', '==', email), where('isAdmin', '==', true));
+        const querySnapshot = await getDocs(q);
+
+        if (!querySnapshot.empty) {
+          setCurrentPage('admin');
+          toast.success('Admin access granted');
+        } else {
+          toast.error('Admin access denied - insufficient permissions');
+          await logout();
         }
+      } catch (profileError) {
+        console.error('Failed to check admin status:', profileError);
+        toast.error('Failed to verify admin permissions');
+        await logout();
       }
     } catch (error) {
       console.error('Admin login error:', error);
@@ -110,7 +100,7 @@ function AppContent() {
 
   const handleLogout = async () => {
     try {
-      await signOut();
+      await logout();
       setCurrentPage('home');
       toast.success('Successfully logged out');
     } catch (error) {

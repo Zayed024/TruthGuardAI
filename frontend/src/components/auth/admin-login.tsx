@@ -4,7 +4,8 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { ShieldCheck, Lock, AlertCircle } from 'lucide-react';
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { db } from '../../utils/firebase';
+import { collection, getDocs, query, where } from 'firebase/firestore';
 
 interface AdminLoginProps {
   onAdminLogin: (email: string, password: string) => void;
@@ -24,18 +25,11 @@ export function AdminLogin({ onAdminLogin, onBack, onAdminSetup }: AdminLoginPro
 
   const checkExistingAdmins = async () => {
     try {
-      const serverUrl = `https://${projectId}.supabase.co/functions/v1/make-server-cd4019c8`;
-      const response = await fetch(`${serverUrl}/admin/exists`, {
-        headers: {
-          'Authorization': `Bearer ${publicAnonKey}`,
-          'Content-Type': 'application/json'
-        }
-      });
+      const usersRef = collection(db, 'users');
+      const q = query(usersRef, where('isAdmin', '==', true));
+      const querySnapshot = await getDocs(q);
 
-      if (response.ok) {
-        const data = await response.json();
-        setHasExistingAdmins(data.hasAdmins);
-      }
+      setHasExistingAdmins(!querySnapshot.empty);
     } catch (error) {
       console.error('Failed to check existing admins:', error);
       setHasExistingAdmins(false);

@@ -1,6 +1,16 @@
 import { useState } from 'react';
 import { useAuth } from './auth-context';
-import { projectId } from '../supabase/info';
+import { db } from '../firebase';
+import {
+  collection,
+  addDoc,
+  query,
+  where,
+  getDocs,
+  orderBy,
+  Timestamp
+} from 'firebase/firestore';
+import { toast } from 'sonner';
 
 interface AnalysisResult {
   id?: string;
@@ -12,18 +22,16 @@ interface AnalysisResult {
   date?: string;
   timeSpent?: string;
   userId?: string;
-  createdAt?: string;
+  createdAt?: Timestamp;
 }
 
 export function useAnalysisHistory() {
-  const { session } = useAuth();
+  const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const serverUrl = `https://${projectId}.supabase.co/functions/v1/make-server-cd4019c8`;
-
   const saveAnalysis = async (analysis: Omit<AnalysisResult, 'id' | 'userId' | 'createdAt'>) => {
-    if (!session?.access_token) {
+    if (!user) {
       throw new Error('User not authenticated');
     }
 
@@ -31,26 +39,19 @@ export function useAnalysisHistory() {
     setError(null);
 
     try {
-      const response = await fetch(`${serverUrl}/analysis/history`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${session.access_token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(analysis)
-      });
+      const analysisWithUser = {
+        ...analysis,
+        userId: user.id,
+        createdAt: Timestamp.now()
+      };
 
-      const data = await response.json();
+      const docRef = await addDoc(collection(db, "analyses"), analysisWithUser);
+      return docRef.id;
 
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to save analysis');
-      }
-
-      return data.analysisId;
-
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to save analysis';
+    } catch (err: any) {
+      const errorMessage = err.message || 'Failed to save analysis';
       setError(errorMessage);
+      toast.error(`Failed to save analysis: ${errorMessage}`);
       throw new Error(errorMessage);
     } finally {
       setLoading(false);
@@ -58,7 +59,7 @@ export function useAnalysisHistory() {
   };
 
   const getAnalysisHistory = async (): Promise<AnalysisResult[]> => {
-    if (!session?.access_token) {
+    if (!user) {
       throw new Error('User not authenticated');
     }
 
@@ -66,24 +67,25 @@ export function useAnalysisHistory() {
     setError(null);
 
     try {
-      const response = await fetch(`${serverUrl}/analysis/history`, {
-        headers: {
-          'Authorization': `Bearer ${session.access_token}`,
-          'Content-Type': 'application/json'
-        }
-      });
+      const analysesRef = collection(db, 'analyses');
+      const q = query(
+        analysesRef,
+        where('userId', '==', user.id),
+        orderBy('createdAt', 'desc')
+      );
 
-      const data = await response.json();
+      const querySnapshot = await getDocs(q);
+      const analyses = querySnapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as AnalysisResult[];
 
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to fetch analysis history');
-      }
+      return analyses;
 
-      return data.analyses || [];
-
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch analysis history';
+    } catch (err: any) {
+      const errorMessage = err.message || 'Failed to fetch analysis history';
       setError(errorMessage);
+      toast.error(`Failed to fetch analysis history: ${errorMessage}`);
       throw new Error(errorMessage);
     } finally {
       setLoading(false);
