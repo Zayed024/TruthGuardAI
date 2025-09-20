@@ -10,7 +10,7 @@ import { Badge } from '../ui/badge';
 import { Separator } from '../ui/separator';
 import { Upload, Link, FileText, AlertTriangle, CheckCircle, XCircle, ExternalLink, Youtube } from 'lucide-react';
 import { useAnalysisHistory } from '../../utils/auth/analysis-hooks';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 
 interface AnalysisResult {
   initial_analysis: {
