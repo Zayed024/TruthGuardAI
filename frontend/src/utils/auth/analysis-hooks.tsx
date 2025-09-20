@@ -4,7 +4,7 @@ import { projectId } from '../supabase/info';
 
 interface AnalysisResult {
   id?: string;
-  type: 'url' | 'text' | 'image';
+  type: 'url' | 'text' | 'image' | 'youtube';
   title: string;
   content: string;
   credibilityScore: number;

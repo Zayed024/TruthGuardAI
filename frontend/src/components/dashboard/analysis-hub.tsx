@@ -8,24 +8,31 @@ import { Label } from '../ui/label';
 import { Progress } from '../ui/progress';
 import { Badge } from '../ui/badge';
 import { Separator } from '../ui/separator';
-import { Upload, Link, FileText, AlertTriangle, CheckCircle, XCircle, ExternalLink } from 'lucide-react';
+import { Upload, Link, FileText, AlertTriangle, CheckCircle, XCircle, ExternalLink, Youtube } from 'lucide-react';
 import { useAnalysisHistory } from '../../utils/auth/analysis-hooks';
 import { toast } from 'sonner@2.0.3';
 
 interface AnalysisResult {
-  credibilityScore: number;
-  status: 'verified' | 'questionable' | 'debunked';
-  summary: string;
-  sources: Array<{
-    name: string;
-    credibility: 'high' | 'medium' | 'low';
-    url: string;
-  }>;
-  factChecks: Array<{
+  initial_analysis: {
+    credibility_score: number;
+    explanation: string;
+  };
+  source_analysis: {
+    political_bias: string;
+    factuality_rating: string;
+  };
+  fact_checks: Array<{
     claim: string;
-    verdict: 'true' | 'false' | 'mixed';
-    source: string;
+    status: string;
+    publisher?: string;
+    rating?: string;
+    url?: string;
   }>;
+  visual_context?: Array<{
+    keyframe_base64: string;
+    context: string;
+  }>;
+  reverse_image_search_url?: string;
 }
 
 export function AnalysisHub() {
@@ -38,71 +45,92 @@ export function AnalysisHub() {
 
   const handleAnalysis = async () => {
     setIsAnalyzing(true);
-    
+    setResult(null); // Clear previous results
+
+    // The base URL for your FastAPI backend
+    const API_BASE_URL = 'http://127.0.0.1:8000';
+    let endpoint = '';
+    let body = {};
+
     try {
-      // Simulate analysis
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      
-      // Generate title based on content
-      let title = '';
-      let content = '';
-      
-      if (activeTab === 'url') {
-        title = `URL Analysis: ${new URL(analysisInput).hostname}`;
-        content = analysisInput;
-      } else if (activeTab === 'text') {
-        title = `Text Analysis: ${analysisInput.substring(0, 50)}...`;
-        content = analysisInput;
-      } else {
-        title = `Image Analysis: ${uploadedFile?.name || 'Uploaded Image'}`;
-        content = uploadedFile?.name || 'uploaded_image.jpg';
-      }
-      
-      // Mock result based on input
-      const mockResult: AnalysisResult = {
-        credibilityScore: activeTab === 'url' && analysisInput.includes('fake') ? 25 : 
-                         activeTab === 'text' && analysisInput.toLowerCase().includes('conspiracy') ? 15 : 85,
-        status: activeTab === 'url' && analysisInput.includes('fake') ? 'debunked' :
-                activeTab === 'text' && analysisInput.toLowerCase().includes('conspiracy') ? 'debunked' : 'verified',
-        summary: activeTab === 'url' && analysisInput.includes('fake') 
-          ? 'This content has been flagged by multiple fact-checking organizations as containing false information.'
-          : activeTab === 'text' && analysisInput.toLowerCase().includes('conspiracy')
-          ? 'This text contains unsubstantiated conspiracy theories that have been debunked by credible sources.'
-          : 'Content appears to be from credible sources with supporting evidence.',
-        sources: [
-          { name: 'Reuters', credibility: 'high', url: 'https://reuters.com' },
-          { name: 'Associated Press', credibility: 'high', url: 'https://apnews.com' },
-          { name: 'BBC News', credibility: 'high', url: 'https://bbc.com' }
-        ],
-        factChecks: [
-          { claim: 'Primary claim in content', verdict: 'true', source: 'Snopes' },
-          { claim: 'Supporting statistic mentioned', verdict: 'true', source: 'PolitiFact' }
-        ]
-      };
-      
-      setResult(mockResult);
-      
-      // Save analysis to user's history
-      try {
-        await saveAnalysis({
-          type: activeTab as 'url' | 'text' | 'image',
-          title,
-          content,
-          credibilityScore: mockResult.credibilityScore,
-          status: mockResult.status,
-          date: new Date().toISOString().split('T')[0],
-          timeSpent: '3 minutes'
+      if (activeTab === 'youtube') {
+        endpoint = `${API_BASE_URL}/v2/analyze_video`;
+        body = { url: analysisInput };
+      } else if (activeTab === 'url' || activeTab === 'text') {
+        endpoint = `${API_BASE_URL}/v2/analyze`;
+        body = {
+          // For URL analysis, we need to get the text first.
+          // In a real app, you'd scrape this. For now, we'll send the URL as text.
+          text: analysisInput,
+          url: activeTab === 'url' ? analysisInput : 'http://example.com' // Use a placeholder for text analysis
+        };
+      } else if (activeTab === 'image' && uploadedFile) {
+        // Use the new upload endpoint for direct image analysis
+        endpoint = `${API_BASE_URL}/v2/upload_and_analyze_image`;
+
+        // Create FormData to send the file
+        const formData = new FormData();
+        formData.append('file', uploadedFile);
+
+        // Use FormData instead of JSON for file upload
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          body: formData,
         });
-        
-        toast.success('Analysis saved to your history');
-      } catch (error) {
-        console.error('Failed to save analysis:', error);
-        // Don't show error to user as the analysis still works
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.detail || 'Image analysis failed.');
+        }
+
+        const data: AnalysisResult = await response.json();
+        setResult(data);
+
+        // Save the analysis to history
+        await saveAnalysis({
+          type: 'image',
+          title: `Image Analysis: ${uploadedFile.name}`,
+          content: `Uploaded image: ${uploadedFile.name}`,
+          credibilityScore: data.initial_analysis.credibility_score,
+          status: data.initial_analysis.credibility_score > 70 ? 'verified' : data.initial_analysis.credibility_score > 40 ? 'questionable' : 'debunked',
+          date: new Date().toISOString().split('T')[0],
+          timeSpent: 'N/A'
+        });
+        toast.success('Image analysis complete and saved to history.');
+
+      } else {
+        throw new Error("Invalid analysis type or missing input.");
       }
-      
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Analysis failed in the backend.');
+      }
+
+      const data: AnalysisResult = await response.json();
+      setResult(data);
+
+      // Save the real analysis to history
+      await saveAnalysis({
+        type: activeTab as 'url' | 'text' | 'image' | 'youtube',
+        title: `Analysis: ${analysisInput.substring(0, 50)}...`,
+        content: analysisInput,
+        credibilityScore: data.initial_analysis.credibility_score,
+        status: data.initial_analysis.credibility_score > 70 ? 'verified' : data.initial_analysis.credibility_score > 40 ? 'questionable' : 'debunked',
+        date: new Date().toISOString().split('T')[0],
+        timeSpent: 'N/A'
+      });
+      toast.success('Analysis complete and saved to history.');
+
     } catch (error) {
       console.error('Analysis failed:', error);
-      toast.error('Analysis failed. Please try again.');
+      toast.error(error instanceof Error ? error.message : 'An unknown error occurred.');
     } finally {
       setIsAnalyzing(false);
     }
@@ -148,7 +176,7 @@ export function AnalysisHub() {
       <div className="text-center space-y-2">
         <h1 className="text-3xl">Analysis Hub</h1>
         <p className="text-muted-foreground">
-          Analyze URLs, text content, or images to verify their credibility and authenticity
+          Analyze URLs, text content, YouTube videos, or images to verify their credibility and authenticity
         </p>
       </div>
 
@@ -161,18 +189,22 @@ export function AnalysisHub() {
         </CardHeader>
         <CardContent>
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="url" className="flex items-center gap-2">
+            <TabsList className="flex w-full h-10">
+              <TabsTrigger value="url" className="flex items-center gap-2 px-4 py-2 text-sm">
                 <Link className="w-4 h-4" />
-                Analyze URL
+                URL
               </TabsTrigger>
-              <TabsTrigger value="text" className="flex items-center gap-2">
+              <TabsTrigger value="text" className="flex items-center gap-2 px-4 py-2 text-sm">
                 <FileText className="w-4 h-4" />
-                Analyze Text
+                Text
               </TabsTrigger>
-              <TabsTrigger value="image" className="flex items-center gap-2">
+              <TabsTrigger value="youtube" className="flex items-center gap-2 px-4 py-2 text-sm">
+                <Youtube className="w-4 h-4" />
+                Video
+              </TabsTrigger>
+              <TabsTrigger value="image" className="flex items-center gap-2 px-4 py-2 text-sm">
                 <Upload className="w-4 h-4" />
-                Upload Image
+                Image
               </TabsTrigger>
             </TabsList>
 
@@ -206,12 +238,31 @@ export function AnalysisHub() {
                   onChange={(e) => setAnalysisInput(e.target.value)}
                 />
               </div>
-              <Button 
+              <Button
                 onClick={handleAnalysis}
                 disabled={!analysisInput || isAnalyzing}
                 className="w-full"
               >
                 {isAnalyzing ? 'Analyzing...' : 'Analyze Text'}
+              </Button>
+            </TabsContent>
+
+            <TabsContent value="youtube" className="space-y-4 mt-6">
+              <div className="space-y-2">
+                <Label htmlFor="youtube-input">Enter YouTube video URL</Label>
+                <Input
+                  id="youtube-input"
+                  placeholder="https://www.youtube.com/watch?v=..."
+                  value={analysisInput}
+                  onChange={(e) => setAnalysisInput(e.target.value)}
+                />
+              </div>
+              <Button
+                onClick={handleAnalysis}
+                disabled={!analysisInput || isAnalyzing}
+                className="w-full"
+              >
+                {isAnalyzing ? 'Analyzing...' : 'Analyze YouTube Video'}
               </Button>
             </TabsContent>
 
@@ -269,7 +320,11 @@ export function AnalysisHub() {
             <CardHeader>
               <CardTitle className="flex items-center justify-between">
                 <span>Analysis Results</span>
-                {getStatusBadge(result.status)}
+                {/* Dynamically determine status from score */}
+                {getStatusBadge(
+                  result.initial_analysis.credibility_score > 70 ? 'verified' :
+                  result.initial_analysis.credibility_score > 40 ? 'questionable' : 'debunked'
+                )}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
@@ -277,11 +332,11 @@ export function AnalysisHub() {
               <div>
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-sm font-medium">Credibility Score</span>
-                  <span className={`text-2xl font-bold ${getScoreColor(result.credibilityScore)}`}>
-                    {result.credibilityScore}%
+                  <span className={`text-2xl font-bold ${getScoreColor(result.initial_analysis.credibility_score)}`}>
+                    {result.initial_analysis.credibility_score}%
                   </span>
                 </div>
-                <Progress value={result.credibilityScore} className="h-3" />
+                <Progress value={result.initial_analysis.credibility_score} className="h-3" />
               </div>
 
               <Separator />
@@ -289,67 +344,75 @@ export function AnalysisHub() {
               {/* Summary */}
               <div>
                 <h4 className="font-semibold mb-2">Summary</h4>
-                <p className="text-muted-foreground">{result.summary}</p>
+                <p className="text-muted-foreground">{result.initial_analysis.explanation}</p>
               </div>
 
               <Separator />
 
-              {/* Sources */}
+              {/* Source Analysis */}
               <div>
                 <h4 className="font-semibold mb-3">Source Analysis</h4>
-                <div className="grid gap-3">
-                  {result.sources.map((source, index) => (
-                    <div key={index} className="flex items-center justify-between p-3 bg-secondary/50 rounded-lg">
-                      <div>
-                        <span className="font-medium">{source.name}</span>
-                        <Badge 
-                          variant="outline" 
-                          className={`ml-2 ${
-                            source.credibility === 'high' ? 'border-green-200 text-green-700' :
-                            source.credibility === 'medium' ? 'border-yellow-200 text-yellow-700' :
-                            'border-red-200 text-red-700'
-                          }`}
-                        >
-                          {source.credibility} credibility
-                        </Badge>
-                      </div>
-                      <Button variant="ghost" size="sm" asChild>
-                        <a href={source.url} target="_blank" rel="noopener noreferrer">
-                          <ExternalLink className="w-4 h-4" />
-                        </a>
-                      </Button>
-                    </div>
-                  ))}
+                <div className="flex items-center space-x-4">
+                  <Badge variant="outline">
+                    Bias: {result.source_analysis.political_bias}
+                  </Badge>
+                  <Badge variant="outline">
+                    Factuality: {result.source_analysis.factuality_rating}
+                  </Badge>
                 </div>
               </div>
+
+              <Separator />
+
+              {/* Visual Context for Videos */}
+              {result.visual_context && result.visual_context.length > 0 && (
+                <div>
+                  <h4 className="font-semibold mb-3">Visual Context (Keyframes)</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {result.visual_context.map((frame, index) => (
+                      <div key={index} className="border rounded-lg p-3">
+                        <img
+                          src={`data:image/jpeg;base64,${frame.keyframe_base64}`}
+                          alt={`Keyframe ${index + 1}`}
+                          className="rounded-md mb-2"
+                        />
+                        <p className="text-xs text-muted-foreground">{frame.context}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <Separator />
 
               {/* Fact Checks */}
-              <div>
-                <h4 className="font-semibold mb-3">Fact Check Results</h4>
-                <div className="space-y-3">
-                  {result.factChecks.map((check, index) => (
-                    <div key={index} className="p-3 border rounded-lg">
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <p className="font-medium text-sm">{check.claim}</p>
-                          <p className="text-xs text-muted-foreground mt-1">Source: {check.source}</p>
+              {result.fact_checks && result.fact_checks.length > 0 && (
+                <div>
+                  <h4 className="font-semibold mb-3">Fact Check Results</h4>
+                  <div className="space-y-3">
+                    {result.fact_checks.map((check, index) => (
+                      <div key={index} className="p-3 border rounded-lg">
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <p className="font-medium text-sm">{check.claim}</p>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              Status: {check.status}
+                              {check.publisher && ` - ${check.publisher}`}
+                            </p>
+                          </div>
+                          {check.url && (
+                            <Button variant="ghost" size="sm" asChild>
+                              <a href={check.url} target="_blank" rel="noopener noreferrer">
+                                <ExternalLink className="w-4 h-4" />
+                              </a>
+                            </Button>
+                          )}
                         </div>
-                        <Badge 
-                          className={`ml-2 ${
-                            check.verdict === 'true' ? 'bg-green-100 text-green-800' :
-                            check.verdict === 'mixed' ? 'bg-yellow-100 text-yellow-800' :
-                            'bg-red-100 text-red-800'
-                          }`}
-                        >
-                          {check.verdict}
-                        </Badge>
                       </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
             </CardContent>
           </Card>
         </div>

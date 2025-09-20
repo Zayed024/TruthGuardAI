@@ -1,6 +1,6 @@
 import os
 import google.generativeai as genai
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -201,33 +201,177 @@ async def analyze_v2(request: V2AnalysisRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred: {type(e).__name__} - {e}")
 
-@app.post("/v2/analyze_video")
-async def analyze_video_v2(request: V2VideoAnalysisRequest):
-    video_path=None
+
+@app.post("/v2/upload_and_analyze_image")
+async def upload_and_analyze_image(file: UploadFile = File(...)):
     try:
-        transcript_text, video_path = await asyncio.to_thread(analyze_video_url,request.url)
+        # Validate file type
+        if not file.content_type.startswith('image/'):
+            raise HTTPException(status_code=400, detail="File must be an image")
 
-        text_analysis_task = asyncio.to_thread(run_full_analysis, transcript_text, request.url)
-        visual_analysis_task = get_visual_context(video_path)
+        # Read the uploaded file data
+        image_data = await file.read()
 
-        results = await asyncio.gather(text_analysis_task, visual_analysis_task)
-        (initial_analysis, source_analysis, claims_to_check), visual_context = results
+        # Create a PIL Image object from the uploaded data
+        pil_img = Image.open(io.BytesIO(image_data))
+
+        # --- Use the Vision Model with a specific prompt for images ---
+        image_prompt = """
+        Analyze this image for potential misinformation. Provide a multi-part analysis. Use '|||' as a separator.
+
+        PART 1: An authenticity score from 0 to 100, where 0 means completely fake/manipulated and 100 means completely authentic and real.
+        |||
+        PART 2: A brief explanation.
+        |||
+        PART 3: The likely political bias or tone of the image's message (e.g., Left-leaning, Neutral, Right-leaning, Satire).
+        |||
+        PART 4: A factuality rating (e.g., Factual, Misleading, Manipulated).
+        |||
+        PART 5: A list of verifiable claims made by text or context in the image, separated by '\\n'.
+        """
+
+        # Send the prompt and the image to the vision model
+        vision_response = await vision_model.generate_content_async([image_prompt, pil_img])
+        parts = vision_response.text.split('|||')
+
+        # Create a placeholder reverse image search URL (since we don't have a URL for uploaded images)
+        reverse_image_search_url = "https://lens.google.com/upload"  # Generic upload URL
+
+        if len(parts) < 5: raise ValueError("AI response for image did not have the expected 5 parts.")
+
+        score_match = re.search(r'\d+', parts[0])
+        score = int(score_match.group(0)) if score_match else 0
+        explanation_clean = parts[1].split(':', 1)[-1].strip()
+        bias_clean = parts[2].split(':', 1)[-1].strip()
+        factuality_clean = parts[3].split(':', 1)[-1].strip()
+        claims_raw = parts[4].split('\n')
+        claims_to_check = [claim.strip() for claim in claims_raw if len(claim.strip().split()) > 1 and "PART 5" not in claim]
+
+        initial_analysis = {"credibility_score": score, "explanation": explanation_clean}
+        source_analysis = {"political_bias": bias_clean, "factuality_rating": factuality_clean}
 
         fact_check_results = []
         if claims_to_check:
             async with httpx.AsyncClient() as client:
                 fact_check_tasks = [run_fact_check(claim, client) for claim in claims_to_check]
                 fact_check_results = await asyncio.gather(*fact_check_tasks)
+
+        final_response = {
+            "initial_analysis": initial_analysis,
+            "source_analysis": source_analysis,
+            "fact_checks": fact_check_results,
+            "reverse_image_search_url": reverse_image_search_url,
+            "filename": file.filename
+        }
+        return final_response
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"An error occurred: {type(e).__name__} - {e}")
+
+@app.post("/v2/analyze_video")
+async def analyze_video_v2(request: V2VideoAnalysisRequest):
+    # Initialize all variables as empty local variables at the beginning of every request
+    video_path = None
+    transcript_text = ""
+    initial_analysis = {}
+    source_analysis = {}
+    claims_to_check = []
+    visual_context = []
+    fact_check_results = []
+
+    try:
+        # Step 1: Download and extract video transcript
+        transcript_text, video_path = await asyncio.to_thread(analyze_video_url, request.url)
+
+        # Step 2: Initialize local model instances for this request only
+        local_model = genai.GenerativeModel('gemini-2.5-flash')
+        local_safety_settings = {
+            HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+        }
+
+        # Step 3: Perform text analysis with local variables
+        domain = tldextract.extract(request.url).registered_domain
+        bias_from_model, factuality_from_model = predict_source_reliability(domain)
+
+        try:
+            domain_info = whois.whois(domain)
+            creation_date = domain_info.creation_date
+            if isinstance(creation_date, list):
+                creation_date = creation_date[0]
+            if creation_date:
+                age_days = (datetime.now() - creation_date).days
+                source_age = f"{age_days // 365} years, {(age_days % 365) // 30} months old"
+            else:
+                source_age = "Unknown"
+        except Exception:
+            source_age = "Unknown"
+
+        # Step 4: Create analysis prompt with local variables
+        full_prompt = f"""
+        Analyze the following text and its source domain. Provide a multi-part analysis. Use '|||' as a separator between each part.
+
+        PART 1: A credibility score from 0 to 100.
+        |||
+        PART 2: A brief, 2-3 sentence explanation for the score.
+        |||
+        PART 3: The political bias of the source domain '{domain}' (e.g., Left-Center, Center, Right).
+        |||
+        PART 4: The factuality rating of the source domain '{domain}' (e.g., High, Mixed, Low).
+        |||
+        PART 5: A list of up to 3 verifiable claims from the text, separated by the newline character '\\n'.
+
+        Here is the text to analyze:
+        ---
+        {transcript_text}
+        ---
+        """
+
+        # Step 5: Generate analysis with local model instance
+        response = local_model.generate_content(full_prompt, safety_settings=local_safety_settings)
+        parts = response.text.split('|||')
+        if len(parts) < 5:
+            raise ValueError("AI response did not have the expected 5 parts.")
+
+        score_match = re.search(r'\d+', parts[0])
+        score = int(score_match.group(0)) if score_match else 0
+        explanation_clean = parts[1].split(':', 1)[-1].strip()
+        bias_clean = parts[2].split(':', 1)[-1].strip()
+        factuality_clean = parts[3].split(':', 1)[-1].strip()
+        claims_raw = parts[4].split('\n')
+        claims_to_check = [claim.strip() for claim in claims_raw if len(claim.strip().split()) > 1 and "PART 5" not in claim]
+
+        # Step 6: Create local analysis results
+        initial_analysis = {"credibility_score": score, "explanation": explanation_clean}
+        source_analysis = {
+            "political_bias": bias_from_model,
+            "factuality_rating": factuality_from_model,
+            "domain_age": source_age
+        }
+
+        # Step 7: Get visual context with isolated processing
+        visual_context = await get_visual_context(video_path)
+
+        # Step 8: Perform fact checking with isolated client
+        if claims_to_check:
+            async with httpx.AsyncClient() as client:
+                fact_check_tasks = [run_fact_check(claim, client) for claim in claims_to_check]
+                fact_check_results = await asyncio.gather(*fact_check_tasks)
+
+        # Step 9: Return completely isolated results
         return {
             "initial_analysis": initial_analysis,
             "source_analysis": source_analysis,
             "fact_checks": fact_check_results,
             "visual_context": visual_context
         }
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred: {type(e).__name__} - {e}")
     finally:
-        # 5. Clean up the downloaded video file
+        # Clean up the downloaded video file
         if video_path and os.path.exists(video_path):
             os.remove(video_path)
 
@@ -248,7 +392,7 @@ async def analyze_image_v2(request: V2ImageAnalysisRequest):
         image_prompt = """
         Analyze this image for potential misinformation. Provide a multi-part analysis. Use '|||' as a separator.
 
-        PART 1: A credibility score (0-100) based on the likelihood of it being misleading.
+        PART 1: An authenticity score from 0 to 100, where 0 means completely fake/manipulated and 100 means completely authentic and real.
         |||
         PART 2: A brief explanation.
         |||
