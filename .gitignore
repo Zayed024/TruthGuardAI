@@ -1,4 +1,7 @@
 .env
 __pycache__
 node_modules
-TODO*.md
+TODO_ADMIN_LOGIN_FIX.md
+TODO_IMAGE_UPLOAD.md
+TODO_SIGNOUT_FIX.md
+TODO.md
