@@ -11,9 +11,10 @@ WORKDIR /app
 # Install ffmpeg for pydub and libgl1 for opencv-python
 RUN apt-get update && apt-get install -y \
     ffmpeg \
-    libgl1-mesa-glx \
+    libgl1 libglx-mesa0 \
     && rm -rf /var/lib/apt/lists/*
 # --- END NEW SECTION ---
+
 
 # Copy the requirements file and install dependencies
 COPY requirements.txt .
