@@ -1,11 +1,13 @@
-/* style.css (New and Improved) */
+/* style.css */
 body {
     font-family: 'Inter', sans-serif;
-    background-color: #f0f2f5;
-    color: #1c1e21;
+    background-color: #f8f9fa;
+    color: #1a1a1a;
     margin: 0;
-    width: 380px; /* Standard extension popup width */
+    width: 400px;
+    min-height: 500px;
 }
+
 .container {
     padding: 16px;
 }
@@ -13,36 +15,56 @@ header {
     display: flex;
     align-items: center;
     justify-content: center;
-    margin-bottom: 16px;
-    padding-bottom: 12px;
-    border-bottom: 1px solid #e0e0e0;
-}
-header .logo {
-    width: 24px;
-    height: 24px;
-    margin-right: 8px;
-}
-header h1 {
-    font-size: 1.25em;
-    margin: 0;
-}
-.hidden { display: none; }
-.card {
-    background: #ffffff;
-    border-radius: 8px;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    margin-bottom: 20px;
     padding: 16px;
-    margin-bottom: 12px;
+    background: white;
+    border-bottom: 1px solid rgba(0,0,0,0.06);
+}
+
+header .logo {
+    width: 28px;
+    height: 28px;
+    margin-right: 12px;
+}
+
+header h1 {
+    font-size: 1.4em;
+    margin: 0;
+    background: linear-gradient(135deg, #1a73e8, #4285f4);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    font-weight: 700;
+}
+
+.hidden { 
+    display: none; 
+}
+
+.card {
+    background: white;
+    border-radius: 16px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    padding: 20px;
+    margin-bottom: 16px;
+    border: 1px solid rgba(0,0,0,0.08);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.card:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
 }
 .card-header {
-    font-size: 1em;
+    font-size: 1.1em;
     font-weight: 600;
-    margin: -16px -16px 12px -16px;
-    padding: 12px 16px;
+    margin: -18px -18px 14px -18px;
+    padding: 14px 18px;
     border-bottom: 1px solid #eef0f2;
     display: flex;
     align-items: center;
     gap: 8px;
+    background: #f8f9fa;
+    border-radius: 12px 12px 0 0;
 }
 
 .card-header svg {
@@ -58,140 +80,230 @@ header h1 {
 /* Score Gauge */
 .score-container {
     text-align: center;
+    padding: 20px 0;
 }
+
 .score-gauge {
-    width: 200px;
-    height: 100px;
+    width: 180px;
+    height: 90px;
     margin: 0 auto;
 }
+
 .score-gauge__body {
     width: 100%;
     height: 100%;
     position: relative;
-    border-radius: 100px 100px 0 0;
-    background: #e0e0e0;
+    border-radius: 90px 90px 0 0;
+    background: #f0f0f0;
     overflow: hidden;
 }
+
 .score-gauge__fill {
     position: absolute;
     top: 100%;
     left: 0;
     width: inherit;
     height: inherit;
-    background: #dc3545; /* Default Red */
+    background: linear-gradient(135deg, #1a73e8, #4285f4);
     transform-origin: center top;
-    transition: transform 0.5s ease-in-out;
+    transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
 }
+
 .score-gauge__cover {
-    width: 160px;
-    height: 80px;
-    background: #fff;
-    border-radius: 80px 80px 0 0;
+    width: 144px;
+    height: 72px;
+    background: white;
+    border-radius: 72px 72px 0 0;
     position: absolute;
-    top: 20px;
+    top: 18px;
     left: 50%;
     transform: translateX(-50%);
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.05);
 }
+
 .score-text {
-    font-size: 2em;
+    font-size: 2.2em;
     font-weight: 700;
-    color: #1c1e21;
-    margin-top: -65px; /* Adjust to center in gauge */
+    background: linear-gradient(135deg, #1a73e8, #4285f4);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-top: -60px;
     margin-bottom: 30px;
 }
 /* Source Analysis */
 
 .source-analysis-grid {
-    display: flex;
-    justify-content: space-around;
-    text-align: center;
-    margin-bottom: 16px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 16px;
+    margin: 20px 0;
 }
 
 .source-item {
     font-size: 0.9em;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: center;
+}
+
+.source-item strong {
+    color: #666;
+    font-weight: 500;
 }
 
 .bias-meter {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 4px;
+    margin: 20px 0;
+    padding: 0 8px;
 }
+
 .bias-meter__label {
-    font-size: 0.8em;
+    font-size: 0.85em;
     color: #666;
+    font-weight: 500;
 }
+
 .bias-meter__bar {
     flex-grow: 1;
-    height: 8px;
-    background: linear-gradient(to right, #007bff, #ced4da, #dc3545);
-    border-radius: 4px;
-    margin: 0 10px;
+    height: 6px;
+    background: linear-gradient(to right, #2196f3, #e0e0e0, #f44336);
+    border-radius: 3px;
+    margin: 0 12px;
     position: relative;
 }
+
 .bias-meter__indicator {
-    width: 14px;
-    height: 14px;
-    background: #fff;
-    border: 2px solid #333;
+    width: 16px;
+    height: 16px;
+    background: white;
+    border: 2px solid #1a73e8;
     border-radius: 50%;
     position: absolute;
     top: 50%;
     transform: translate(-50%, -50%);
-    transition: left 0.5s ease-in-out;
+    transition: left 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
 .factuality-container {
     text-align: center;
     font-size: 0.9em;
 }
 .tag {
-    padding: 4px 10px;
-    border-radius: 12px;
-    font-weight: 600;
-    color: #fff;
-    font-size: 0.9em;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-weight: 500;
+    color: white;
+    font-size: 0.85em;
+    background: #1a73e8;
+    transition: transform 0.2s ease;
 }
+
+.tag:hover {
+    transform: translateY(-1px);
+}
+
 /* Fact Checks */
 .fact-check-item {
-    border-bottom: 1px solid #eef0f2;
-    padding-bottom: 10px;
-    margin-bottom: 10px;
-    cursor: pointer;
+    border-bottom: 1px solid rgba(0,0,0,0.06);
+    padding: 16px 0;
+    margin: 0;
+    transition: background-color 0.2s ease;
 }
+
+.fact-check-item:hover {
+    background-color: #f8f9fa;
+}
+
 .fact-check-item:last-child {
     border-bottom: none;
-    margin-bottom: 0;
 }
+
 .claim-header {
     font-weight: 600;
-    font-size: 0.9em;
+    font-size: 0.95em;
+    color: #1a1a1a;
+    margin-bottom: 8px;
 }
+
 .claim-details {
-    font-size: 0.85em;
-    padding-left: 10px;
-    margin-top: 8px;
-    color: #333;
+    font-size: 0.9em;
+    color: #505050;
+    line-height: 1.5;
 }
+
 .claim-details a {
-    color: #1877f2;
-    font-weight: 600;
+    color: #1a73e8;
+    font-weight: 500;
     text-decoration: none;
+    transition: color 0.2s ease;
+}
+
+.claim-details a:hover {
+    color: #4285f4;
 }
 /* Loader */
-#loading-view { text-align: center; }
+#loading-view {
+    text-align: center;
+    padding: 40px 0;
+}
+
 .loader {
-    border: 4px solid #f3f3f3;
-    border-top: 4px solid #1877f2;
+    border: 3px solid rgba(26,115,232,0.1);
+    border-top: 3px solid #1a73e8;
     border-radius: 50%;
     width: 40px;
     height: 40px;
-    animation: spin 1s linear infinite;
+    animation: spin 0.8s linear infinite;
     margin: 20px auto;
 }
+
 @keyframes spin {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
+}
+
+/* Error View */
+#error-view {
+    text-align: center;
+    padding: 40px 20px;
+    color: #d32f2f;
+}
+
+/* Button Links */
+.button-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: #1a73e8;
+    color: white;
+    text-decoration: none;
+    border-radius: 20px;
+    font-size: 0.9em;
+    font-weight: 500;
+    transition: background-color 0.2s ease;
+}
+
+.button-link:hover {
+    background: #4285f4;
+}
+
+/* Wiki Notes */
+.wiki-notes-container {
+    background: #f8f9fa;
+    border-radius: 12px;
+    padding: 16px;
+    margin-top: 16px;
+}
+
+.wiki-notes-container strong {
+    color: #1a73e8;
+    display: block;
+    margin-bottom: 8px;
 }
 
 .visual-item {
@@ -227,4 +339,23 @@ header h1 {
 }
 .button-link:hover {
     background-color: #166fe5;
+}
+
+
+.wiki-notes-container {
+    margin-top: 14px;
+    font-size: 0.85em;
+    line-height: 1.4;
+    color: #333;
+    border-top: 1px solid #eef0f2;
+    padding-top: 12px;
+}
+.wiki-notes-container strong {
+    display: block;
+    margin-bottom: 4px;
+    color: #111;
+    font-weight: 600;
+}
+.wiki-notes-container p {
+    margin: 0;
 }

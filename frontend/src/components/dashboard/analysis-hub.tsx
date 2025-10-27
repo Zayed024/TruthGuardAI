@@ -48,7 +48,7 @@ export function AnalysisHub() {
     setResult(null); // Clear previous results
 
     // The base URL for your FastAPI backend
-    const API_BASE_URL = 'http://127.0.0.1:8000';
+const API_BASE_URL = 'https://truth-guard-ai-309053470356.asia-south1.run.app';
     let endpoint = '';
     let body = {};
 

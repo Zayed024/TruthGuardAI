@@ -15,3 +15,6 @@ Pillow
 python-dotenv
 python-multipart
 python-whois
+
+Wikipedia-API
+newsapi-python
