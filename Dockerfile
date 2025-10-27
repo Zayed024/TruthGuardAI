@@ -8,12 +8,11 @@ RUN apt-get update && apt-get install -y libgl1 libglib2.0-0 && rm -rf /var/lib/
 WORKDIR /app
 
 # --- NEW SECTION: Install system dependencies ---
-# Install ffmpeg for pydub and libgl1 for opencv-python
+# Install ffmpeg for pydub and additional OpenGL libraries
 RUN apt-get update && apt-get install -y \
     ffmpeg \
-    libgl1 libglx-mesa0 \
+    libglx-mesa0 \
     && rm -rf /var/lib/apt/lists/*
-# --- END NEW SECTION ---
 
 
 # Copy the requirements file and install dependencies
