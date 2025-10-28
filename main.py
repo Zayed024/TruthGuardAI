@@ -37,8 +37,8 @@ app.add_middleware(
 try:
     genai.configure(api_key=os.environ["GEMINI_API_KEY"])
     FACT_CHECK_API_KEY = os.environ["FACT_CHECK_API_KEY"]
-    text_model = genai.GenerativeModel('gemini-1.5-flash')
-    vision_model = genai.GenerativeModel('gemini-1.5-pro')
+    text_model = genai.GenerativeModel('gemini-2.5-flash')
+    vision_model = genai.GenerativeModel('gemini-2.5-pro')
     vision_client = vision.ImageAnnotatorClient()
     newsapi = NewsApiClient(api_key=os.environ["NEWS_API_KEY"])
     wiki_wiki = wikipediaapi.Wikipedia('TruthGuard AI Bot (truthguard@example.com)', 'en')
