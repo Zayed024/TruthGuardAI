@@ -132,30 +132,45 @@ async def run_fact_check(claim: str, client: httpx.AsyncClient):
         return {"claim": claim, "status": "Processing Error"}
 
 
-# --- 3. "Agentic" Grounding Functions (All Async) ---
+# --- 3. "Agentic" Grounding & Planning Functions (All Async) ---
 
-async def get_news_topic(text: str):
+async def get_text_category_and_topic(text: str):
+    """
+    Planning step: classify the text and extract a concise topic.
+    Returns (category, topic)
+    """
     try:
-        prompt = f"What is the single central topic, person, or event in this text? Be very concise. Examples: 'Joe Biden', 'Ukraine War', 'Tesla stock prices'.\n\nTEXT: {text[:1000]}"
-        response = await text_model.generate_content_async(prompt, safety_settings=safety_settings)
-        return response.text.strip()
-    except Exception:
-        return None
+        prompt = f"""
+        Analyze the text below.
+        1. Classify its primary category. Choose one: Current Event, Historical Event, Financial News, General Opinion.
+        2. Identify the single central topic, person, or event. Be concise (1-3 words).
 
-async def get_news_context(topic: str):
+        Return the result as: Category|||Topic
+
+        TEXT: {text[:1500]}
+        """
+        response = await text_model.generate_content_async(prompt, safety_settings=safety_settings)
+        parts = response.text.strip().split('|||')
+        if len(parts) == 2:
+            return parts[0].strip(), parts[1].strip()
+        return "General Opinion", None
+    except Exception:
+        return "General Opinion", None
+
+async def get_live_news_context(topic: str):
     if not topic:
-        return "No news context found."
+        return "No specific topic identified."
     try:
         articles = await asyncio.to_thread(
             newsapi.get_everything,
             q=topic, language='en', sort_by='relevancy', page_size=3
         )
-        if articles['totalResults'] == 0:
-            return "No recent news articles found on this topic."
+        if articles.get('totalResults', 0) == 0:
+            return f"No recent news found for '{topic}'."
         headlines = [f"- {a['title']} ({a['source']['name']})" for a in articles['articles']]
-        return "For context, here are recent, live news headlines on this topic:\n" + "\n".join(headlines)
+        return f"Recent News Context for '{topic}':\n" + "\n".join(headlines)
     except Exception:
-        return "Could not fetch news context."
+        return f"Could not fetch news context for '{topic}'."
 
 async def extract_claims_from_text(text: str):
     try:
@@ -169,75 +184,100 @@ async def extract_claims_from_text(text: str):
 # --- 4. Main Analysis Pipelines (Async) ---
 
 async def run_full_analysis(text: str, url: str):
+    """
+    Agentic analysis pipeline: Plan -> Select & Run Tools -> Final Reasoning
+    """
     domain = tldextract.extract(url).registered_domain
-    
-    topic_task = get_news_topic(text)
+
+    # 1) Planning: classify text and get topic
+    category, topic = await get_text_category_and_topic(text)
+
+    # 2) Prepare tool tasks based on plan
+    context_tasks = []
+    if category == "Current Event" and topic:
+        context_tasks.append(get_live_news_context(topic))
+    elif category == "Historical Event" and topic:
+        context_tasks.append(asyncio.to_thread(get_wikipedia_notes, topic))
+
+    # Standard tasks
     claims_task = extract_claims_from_text(text)
     bias_task = asyncio.to_thread(predict_source_reliability, domain)
     whois_task = asyncio.to_thread(whois.whois, domain)
-    wiki_task = asyncio.to_thread(get_wikipedia_notes, domain)
-    
-    topic, claims_to_check, (bias_from_model, factuality_from_model), domain_info, wiki_notes = await asyncio.gather(
-        topic_task, claims_task, bias_task, whois_task, wiki_task
+    wiki_notes_task = asyncio.to_thread(get_wikipedia_notes, domain)
+
+    # Execute all tasks concurrently
+    results = await asyncio.gather(
+        claims_task,
+        bias_task,
+        whois_task,
+        wiki_notes_task,
+        *context_tasks
     )
-    
-    
-    news_context_task = get_news_context(topic)
-    
-    source_age = "Unknown" 
+
+    claims_to_check = results[0]
+    bias_from_model, factuality_from_model = results[1]
+    domain_info = results[2]
+    wiki_notes_for_source = results[3]
+    dynamic_context_results = results[4:]
+
+    # WHOIS -> domain age
+    source_age = "Unknown"
     try:
-        if domain_info and domain_info.creation_date:
+        creation_date = None
+        if domain_info and getattr(domain_info, 'creation_date', None):
             creation_date = domain_info.creation_date
-            if isinstance(creation_date, list): creation_date = creation_date[0]
-            if creation_date:
-                age_days = (datetime.now() - creation_date).days
-                source_age = f"{age_days // 365}y, {(age_days % 365) // 30}m old"
+        if isinstance(creation_date, list):
+            creation_date = creation_date[0]
+        if creation_date:
+            age_days = (datetime.now() - creation_date).days
+            source_age = f"{age_days // 365}y, {(age_days % 365) // 30}m old"
     except Exception as e:
-        print(f"WHOIS lookup failed for {domain}: {e}")
-    
-    news_context = await news_context_task
+        print(f"WHOIS lookup failed: {e}")
+
+    final_context_str = "\n".join([str(r) for r in dynamic_context_results]) if dynamic_context_results else "No specific context gathered."
+
+    # 3) Final reasoning prompt
     today_date = datetime.now().strftime("%B %d, %Y")
-            
-    full_prompt = f"""
-    You are an expert fact-checker. Analyze the following text using the ground-truth context I provide.
+    final_prompt = f"""
+    You are an expert fact-checker. Analyze the following text using the ground-truth context gathered by your tools.
+
     --- GROUND TRUTH CONTEXT ---
     1. Current Date: {today_date}
-    2. Recent News on Topic: {news_context}
+    2. Context for Topic '{topic}': {final_context_str}
     --- END CONTEXT ---
-    
+
     Now, analyze the text below based *only* on the text itself and the context provided.
     Provide a multi-part analysis. Use '|||' as a separator.
 
     PART 1: A credibility score (0-100).
     |||
-    PART 2: A brief explanation for the score. Refer to the current date or recent news if they contradict the text.
+    PART 2: A brief explanation for the score. Refer specifically to the Current Date or Context for Topic if they contradict the text.
     |||
-    PART 3: A list of up to 3 verifiable claims from the text, separated by '\\n'. 
-    (NOTE: You already provided these claims: {claims_to_check}. Do NOT regenerate them. Just list them.)
+    PART 3: A list of up to 3 verifiable claims from the text, separated by '\\n'.
+    (NOTE: Your claim extraction tool already provided these claims: {claims_to_check}. Do NOT regenerate them. Just list them.)
 
     --- TEXT TO ANALYZE ---
     {text}
     ---
     """
-    
-    response = await text_model.generate_content_async(full_prompt, safety_settings=safety_settings)
+
+    response = await text_model.generate_content_async(final_prompt, safety_settings=safety_settings)
     parts = response.text.split('|||')
-    
     if len(parts) < 3:
-        raise ValueError("AI response did not have the expected 3 parts.")
+        raise ValueError("Final AI response did not have 3 parts.")
 
     score_match = re.search(r'\d+', parts[0])
     score = int(score_match.group(0)) if score_match else 0
     explanation_clean = parts[1].split(':', 1)[-1].strip()
-    
+
     initial_analysis = {"credibility_score": score, "explanation": explanation_clean}
     source_analysis = {
         "political_bias": bias_from_model,
         "factuality_rating": factuality_from_model,
         "domain_age": source_age,
-        "wikipedia_notes": wiki_notes
+        "wikipedia_notes": wiki_notes_for_source
     }
-    
+
     return initial_analysis, source_analysis, claims_to_check
 
 # --- 5. FastAPI Endpoints (All Async) ---
