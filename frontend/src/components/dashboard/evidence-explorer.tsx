@@ -101,8 +101,8 @@ export function EvidenceExplorer() {
   const [selectedClaim, setSelectedClaim] = useState<string | null>(null);
   
   const filteredArticles = mockArticles.filter(article =>
-    article.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    article.summary.toLowerCase().includes(searchTerm.toLowerCase())
+    (article.title || '').toLowerCase().includes((searchTerm || '').toLowerCase()) ||
+    (article.summary || '').toLowerCase().includes((searchTerm || '').toLowerCase())
   );
 
   const getStatusColor = (status: string) => {

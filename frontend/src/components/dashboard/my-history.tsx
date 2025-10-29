@@ -6,17 +6,18 @@ import { Badge } from '../ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Search, Eye, Calendar, Link, FileText, Image, Filter } from 'lucide-react';
 import { useAnalysisHistory } from '../../utils/auth/analysis-hooks';
-import { toast } from 'sonner@2.0.3';
+import { toast } from 'sonner';
 
 interface AnalysisHistory {
-  id: string;
-  type: 'url' | 'text' | 'image';
-  title: string;
-  content: string;
-  credibilityScore: number;
-  status: 'verified' | 'questionable' | 'debunked';
-  date: string;
-  timeSpent: string;
+  id?: string;
+  type?: 'url' | 'text' | 'image' | 'youtube';
+  title?: string;
+  content?: string;
+  credibilityScore?: number;
+  status?: 'verified' | 'questionable' | 'debunked';
+  date?: string;
+  timeSpent?: string;
+  createdAt?: any; // could be a string or Firebase Timestamp
 }
 
 export function MyHistory() {
@@ -73,8 +74,10 @@ export function MyHistory() {
 
   const filteredHistory = history
     .filter(item => {
-      const matchesSearch = item.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                           item.content.toLowerCase().includes(searchTerm.toLowerCase());
+      const titleSafe = (item.title || '').toLowerCase();
+      const contentSafe = (item.content || '').toLowerCase();
+      const termSafe = (searchTerm || '').toLowerCase();
+      const matchesSearch = titleSafe.includes(termSafe) || contentSafe.includes(termSafe);
       const matchesType = typeFilter === 'all' || item.type === typeFilter;
       const matchesStatus = statusFilter === 'all' || item.status === statusFilter;
       return matchesSearch && matchesType && matchesStatus;
@@ -86,9 +89,9 @@ export function MyHistory() {
           const dateB = new Date(b.createdAt || b.date || '');
           return dateB.getTime() - dateA.getTime();
         case 'score':
-          return b.credibilityScore - a.credibilityScore;
+          return (b.credibilityScore || 0) - (a.credibilityScore || 0);
         case 'title':
-          return a.title.localeCompare(b.title);
+          return (a.title || '').localeCompare(b.title || '');
         default:
           return 0;
       }
@@ -237,11 +240,11 @@ export function MyHistory() {
                   <div className="flex-1 space-y-2">
                     <div className="flex items-center space-x-3">
                       <div className="flex items-center space-x-2 text-muted-foreground">
-                        {getTypeIcon(item.type)}
+                        {getTypeIcon(item.type || 'url')}
                         <span className="text-sm capitalize">{item.type} Analysis</span>
                       </div>
-                      <Badge className={getStatusColor(item.status)}>
-                        {item.status}
+                      <Badge className={getStatusColor(item.status || '')}>
+                        {item.status || 'unknown'}
                       </Badge>
                     </div>
                     
@@ -254,7 +257,15 @@ export function MyHistory() {
                     <div className="flex items-center space-x-4 text-sm text-muted-foreground">
                       <div className="flex items-center space-x-1">
                         <Calendar className="w-4 h-4" />
-                        <span>{new Date(item.createdAt || item.date || '').toLocaleDateString()}</span>
+                        {
+                          (() => {
+                            const created = item.createdAt && typeof item.createdAt.toDate === 'function'
+                              ? item.createdAt.toDate()
+                              : (item.createdAt || item.date || '');
+                            const dateObj = created ? new Date(created) : null;
+                            return <span>{dateObj ? dateObj.toLocaleDateString() : 'Unknown'}</span>;
+                          })()
+                        }
                       </div>
                       <span>•</span>
                       <span>Analysis time: {item.timeSpent || 'N/A'}</span>
@@ -264,8 +275,8 @@ export function MyHistory() {
                   <div className="flex items-center space-x-4 ml-6">
                     <div className="text-right">
                       <div className="text-sm text-muted-foreground">Credibility Score</div>
-                      <div className={`text-2xl font-bold ${getScoreColor(item.credibilityScore)}`}>
-                        {item.credibilityScore}%
+                      <div className={`text-2xl font-bold ${getScoreColor(item.credibilityScore ?? 0)}`}>
+                        {(item.credibilityScore ?? 0)}%
                       </div>
                     </div>
                     

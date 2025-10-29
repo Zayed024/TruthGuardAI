@@ -13,14 +13,58 @@ import httpx
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 import whois
 from datetime import datetime
+from contextlib import asynccontextmanager
 import joblib
 import wikipediaapi
 import io
 from google.cloud import vision
 from newsapi import NewsApiClient
-from PIL import Image # Make sure PIL is imported
+from PIL import Image 
+from video_analyzer import update_working_proxies
 
-app = FastAPI()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan handler to replace deprecated on_event startup/shutdown.
+
+    Startup: schedule background proxy updater.
+    Shutdown: no-op (placeholder for cleanup if needed).
+    """
+    # Ensure environment variables are loaded (idempotent)
+    load_dotenv()
+
+    # Configurable refresh interval (seconds)
+    try:
+        refresh_seconds = int(os.environ.get("PROXY_REFRESH_INTERVAL_SECONDS", "600"))
+    except Exception:
+        refresh_seconds = 1000
+
+    async def _proxy_refresher():
+        """Background task that periodically refreshes the working proxy list."""
+        while True:
+            try:
+                await update_working_proxies()
+            except Exception as e:
+                print(f"Proxy refresh failed: {e}")
+            try:
+                await asyncio.sleep(refresh_seconds)
+            except asyncio.CancelledError:
+                break
+
+    # Startup actions: start the periodic refresher
+    refresher_task = asyncio.create_task(_proxy_refresher())
+    try:
+        yield
+    finally:
+        # Shutdown: cancel the background refresher task
+        refresher_task.cancel()
+        try:
+            await refresher_task
+        except asyncio.CancelledError:
+            pass
+
+
+app = FastAPI(lifespan=lifespan)
 load_dotenv()
 
 # --- CORS (added back from original) ---
@@ -32,7 +76,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 # --- 1. Initialize All APIs & Models ---
 try:
     genai.configure(api_key=os.environ["GEMINI_API_KEY"])
@@ -280,7 +323,11 @@ async def run_full_analysis(text: str, url: str):
 
     return initial_analysis, source_analysis, claims_to_check
 
+
+# (Startup handled by FastAPI lifespan handler)
+
 # --- 5. FastAPI Endpoints (All Async) ---
+
 
 @app.get("/")
 def read_root():

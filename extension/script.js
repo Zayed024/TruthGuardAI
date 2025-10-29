@@ -60,6 +60,21 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
+// Utility: safely read string fields from possibly-missing nested objects
+function safeGetString(obj, path, fallback = '') {
+    try {
+        const parts = path.split('.');
+        let cur = obj;
+        for (const p of parts) {
+            if (!cur || typeof cur !== 'object' || !(p in cur)) return fallback;
+            cur = cur[p];
+        }
+        return cur == null ? fallback : String(cur);
+    } catch (e) {
+        return fallback;
+    }
+}
+
 /**
  * A centralized function to call the backend and display results.
  * @param {('text'|'video'|'image')} type - The type of analysis to perform.
@@ -119,9 +134,10 @@ function displayResults(data) {
     // --- Source Analysis Meter ---
     const biasIndicator = document.getElementById('bias-indicator');
     const biasText = document.getElementById('bias-text');
-    const bias = data.source_analysis.political_bias.toLowerCase();
+    const biasRaw = safeGetString(data, 'source_analysis.political_bias', '');
+    const bias = (biasRaw || '').toLowerCase();
     
-    biasText.textContent = data.source_analysis.political_bias;
+    biasText.textContent = biasRaw || 'Unknown';
     biasText.style.background = '#6c757d'; // Neutral gray for bias text
 
     let biasPosition = 50; // Default to Center
@@ -130,18 +146,20 @@ function displayResults(data) {
     biasIndicator.style.left = `${biasPosition}%`;
 
     const factualityRating = document.getElementById('factuality-rating');
-    const factuality = data.source_analysis.factuality_rating.toLowerCase();
-    factualityRating.textContent = data.source_analysis.factuality_rating;
+    const factualityRaw = safeGetString(data, 'source_analysis.factuality_rating', '');
+    const factuality = (factualityRaw || '').toLowerCase();
+    factualityRating.textContent = factualityRaw || 'Unknown';
 
     if (factuality.includes('high')) factualityRating.style.background = '#28a745';
     else if (factuality.includes('mixed')) factualityRating.style.background = '#ffc107';
     else factualityRating.style.background = '#dc3545';
 
     const domainAge = document.getElementById('domain-age');
-    if (data.source_analysis.domain_age && data.source_analysis.domain_age !== "Unknown") {
-        domainAge.textContent = data.source_analysis.domain_age;
+    const domainAgeRaw = safeGetString(data, 'source_analysis.domain_age', null);
+    if (domainAgeRaw && domainAgeRaw !== "Unknown") {
+        domainAge.textContent = domainAgeRaw;
         domainAge.style.background = '#6c757d';
-    } else {
+    } else if (domainAge && domainAge.parentElement) {
         domainAge.parentElement.style.display = 'none';
     }
 
@@ -149,13 +167,12 @@ function displayResults(data) {
     const wikiNotesText = document.getElementById('wiki-notes-text');
     const wikiNotesContainer = document.getElementById('wiki-notes-container');
     
-    const notes = data.source_analysis.wikipedia_notes;
-    
+    const notes = safeGetString(data, 'source_analysis.wikipedia_notes', '');
     // Only show the container if we have useful notes
     if (notes && !notes.startsWith("No") && !notes.startsWith("Error")) {
         wikiNotesText.textContent = notes;
         wikiNotesContainer.classList.remove('hidden');
-    } else {
+    } else if (wikiNotesContainer) {
         // Otherwise, make sure it's hidden
         wikiNotesContainer.classList.add('hidden');
     }
