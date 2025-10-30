@@ -115,10 +115,20 @@ safety_settings = {
 # --- 2. Asynchronous Tool-Augmented Functions ---
 
 # --- Custom ML Model (Sync, needs to be threaded) ---
-def predict_source_reliability(domain: str):
+async def predict_source_reliability(domain: str):
     if domain in PLATFORM_DOMAINS:
         return "N/A (Platform)", "N/A (Platform)"
-    if not all([source_model, vectorizer, mlb]): return "N/A", "N/A"
+    if not all([source_model, vectorizer, mlb]):
+        # Fallback: Use Gemini to classify bias and factuality
+        try:
+            prompt = f"Classify the political bias and factuality rating of the website '{domain}'. Return as: Bias|||Factuality"
+            response = await text_model.generate_content_async(prompt, safety_settings=safety_settings)
+            parts = response.text.strip().split('|||')
+            if len(parts) == 2:
+                return parts[0].strip(), parts[1].strip()
+            return "Unknown", "Unknown"
+        except Exception:
+            return "N/A", "N/A"
     try:
         processed_domain = vectorizer.transform([domain])
         prediction_binarized = source_model.predict(processed_domain)
@@ -130,7 +140,16 @@ def predict_source_reliability(domain: str):
             return "Not Rated", "Not Rated"
     except Exception as e:
         print(f"Model prediction failed: {e}")
-        return "Error", "Error"
+        # Fallback: Use Gemini
+        try:
+            prompt = f"Classify the political bias and factuality rating of the website '{domain}'. Return as: Bias|||Factuality"
+            response = await text_model.generate_content_async(prompt, safety_settings=safety_settings)
+            parts = response.text.strip().split('|||')
+            if len(parts) == 2:
+                return parts[0].strip(), parts[1].strip()
+            return "Unknown", "Unknown"
+        except Exception:
+            return "Error", "Error"
 
 # --- Wikipedia (Sync, needs to be threaded) ---
 def get_wikipedia_notes(domain: str):
@@ -250,7 +269,7 @@ async def run_full_analysis(text: str, url: str):
 
     # Standard tasks
     claims_task = extract_claims_from_text(text)
-    bias_task = asyncio.to_thread(predict_source_reliability, domain)
+    bias_task = predict_source_reliability(domain)
     whois_task = asyncio.to_thread(whois.whois, domain)
     wiki_notes_task = asyncio.to_thread(get_wikipedia_notes, domain)
 
