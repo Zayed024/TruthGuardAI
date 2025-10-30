@@ -25,8 +25,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
-            // Check if the page is a YouTube video
-            if (currentTab.url.includes("youtube.com/watch")) {
+            // Special handling for different platforms
+            const url = new URL(currentTab.url);
+            const isYouTube = url.hostname.includes("youtube.com") && url.pathname.includes("/watch");
+            const isTwitterPost = (url.hostname.includes("x.com") || url.hostname.includes("twitter.com")) && 
+                                 url.pathname.includes("/status/");
+
+            if (isYouTube) {
                 loadingView.classList.add('hidden');
                 youtubeView.classList.remove('hidden');
 
@@ -138,11 +143,27 @@ function displayResults(data) {
     const bias = (biasRaw || '').toLowerCase();
     
     biasText.textContent = biasRaw || 'Unknown';
-    biasText.style.background = '#6c757d'; // Neutral gray for bias text
+    
+    // Set text color based on bias category
+    if (biasRaw) {
+        if (bias === 'satire') {
+            biasText.style.background = '#6f42c1'; // Purple for satire
+        } else if (bias === 'center') {
+            biasText.style.background = '#28a745'; // Green for center
+        } else {
+            biasText.style.background = '#6c757d'; // Gray for others
+        }
+    }
 
+    // Position the bias indicator
     let biasPosition = 50; // Default to Center
-    if (bias.includes('left')) biasPosition = bias.includes('center') ? 25 : 0;
-    if (bias.includes('right')) biasPosition = bias.includes('center') ? 75 : 100;
+    if (bias.includes('left')) {
+        biasPosition = bias.includes('leaning') ? 25 : 0;
+    } else if (bias.includes('right')) {
+        biasPosition = bias.includes('leaning') ? 75 : 100;
+    } else if (bias === 'satire') {
+        biasPosition = 100; // Place satire at the far right
+    }
     biasIndicator.style.left = `${biasPosition}%`;
 
     const factualityRating = document.getElementById('factuality-rating');

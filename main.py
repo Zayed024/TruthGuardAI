@@ -20,7 +20,7 @@ import io
 from google.cloud import vision
 from newsapi import NewsApiClient
 from PIL import Image 
-from video_analyzer import update_working_proxies
+from video_analyzer import update_working_proxies,analyze_video_url,download_video,get_visual_context
 
 
 @asynccontextmanager
@@ -393,7 +393,18 @@ async def upload_and_analyze_image(file: UploadFile = File(...)):
         score_match = re.search(r'\d+', parts[0])
         score = int(score_match.group(0)) if score_match else 0
         explanation_clean = parts[1].split(':', 1)[-1].strip()
-        bias_clean = parts[2].split(':', 1)[-1].strip()
+        # Normalize the bias response to match the format UI expects
+        bias_raw = parts[2].split(':', 1)[-1].strip().lower()
+        bias_clean = "Center"  # Default
+        if "left" in bias_raw:
+            bias_clean = "Left-Leaning" if "center" in bias_raw else "Left"
+        elif "right" in bias_raw:
+            bias_clean = "Right-Leaning" if "center" in bias_raw else "Right"
+        elif "neutral" in bias_raw or "center" in bias_raw:
+            bias_clean = "Center"
+        elif "satire" in bias_raw:
+            bias_clean = "Satire"
+        
         factuality_clean = parts[3].split(':', 1)[-1].strip()
         claims_raw = parts[4].split('\n')
         claims_to_check = [claim.strip() for claim in claims_raw if len(claim.strip().split()) > 1 and "PART 5" not in claim]
@@ -423,18 +434,44 @@ async def upload_and_analyze_image(file: UploadFile = File(...)):
 @app.post("/v2/analyze_video")
 async def analyze_video_v2(request: V2VideoAnalysisRequest):
     video_path = None
+    transcript_text = ""
+    download_url = None
     try:
-        from video_analyzer import analyze_video_url, get_visual_context 
-        
-        # Run the blocking yt-dlp/whisper process in a thread
-        transcript_text, video_path = await asyncio.to_thread(analyze_video_url, request.url)
-        
-        # Run the full text analysis pipeline on the transcript
+        # --- Step 1: Get transcript using the appropriate method ---
+        # analyze_video_url_async will raise exceptions on failure
+        transcript_text, download_url = await analyze_video_url(request.url)
+
+        # --- Step 2: Run text analysis based on the transcript ---
+        initial_analysis_task = run_full_analysis(transcript_text, request.url)
+
+        # --- Step 3: Concurrently download video (if needed) and run text analysis ---
+        # Only download if we got a transcript and URL
+        video_download_task = None
+        if transcript_text and download_url:
+             # Run synchronous download_video in a thread
+             video_download_task = asyncio.to_thread(download_video, download_url)
+
+        # Await text analysis results
+        initial_analysis, source_analysis, claims_to_check = await initial_analysis_task
+
         initial_analysis, source_analysis, claims_to_check = await run_full_analysis(transcript_text, request.url)
-        
-        # Get visual context in a thread
-        visual_context_task = asyncio.to_thread(get_visual_context, video_path) # Assumes get_visual_context is sync
-        
+            
+        visual_context = []
+        if video_download_task:
+            try:
+                video_path = await video_download_task # Get the downloaded path
+                if video_path:
+                    # Run synchronous get_visual_context in a thread
+                    visual_context_task = asyncio.to_thread(get_visual_context, video_path)
+                    visual_context = await visual_context_task
+                else:
+                    print("Video download returned None path.")
+            except HTTPException as e:
+                # Catch specific download errors (like the bot detection)
+                print(f"Video download failed during analysis: {e.detail}")
+                # Optionally add this info to the response instead of failing the whole request
+            except Exception as e:
+                 print(f"Error during video download/visual context: {e}")
         # Run fact-checking
         fact_check_results = []
         if claims_to_check:
@@ -451,11 +488,17 @@ async def analyze_video_v2(request: V2VideoAnalysisRequest):
             "visual_context": visual_context
         }
         return final_response
+    except HTTPException as e:
+        # Re-raise HTTPExceptions from download/API calls
+        raise e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"An error occurred: {type(e).__name__} - {e}")
+        # General catch-all
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {type(e).__name__} - {e}")
     finally:
+        # Final cleanup attempt
         if video_path and os.path.exists(video_path):
-            os.remove(video_path)
+            try: os.remove(video_path)
+            except Exception as cleanup_err: print(f"Error during final cleanup: {cleanup_err}")
 
 
 @app.post("/v2/analyze_image")

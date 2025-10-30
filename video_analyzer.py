@@ -14,6 +14,7 @@ from fastapi import HTTPException
 import cv2
 import base64
 import asyncio
+import httpx
 from dotenv import load_dotenv
 from PIL import Image
 import google.generativeai as genai
@@ -135,7 +136,7 @@ except KeyError as e:
 vision_model = genai.GenerativeModel('gemini-2.5-pro')
 
 # --- Helper Functions ---
-def extract_video_id(url: str) -> str:
+def extract_video_id(url: str) -> str | None:
     parsed_url = urlparse(url)
     if parsed_url.hostname in ("youtu.be",):
         return parsed_url.path.lstrip("/")
@@ -185,24 +186,28 @@ async def get_visual_context(video_path: str, num_keyframes: int = 3):
         
     return results
 
-def get_transcript_from_youtube(video_url: str, proxies=None) -> str:
+async def get_transcript_from_youtube(video_url: str, proxies=None) -> str:
     video_id = extract_video_id(video_url)
     if not video_id:
         raise ValueError("Invalid YouTube URL or missing video ID.")
 
     ytt_api = YouTubeTranscriptApi()
     try:
-        transcript_list = ytt_api.list(video_id, proxies=proxies) if proxies else ytt_api.list(video_id)
+        transcript_list = await asyncio.to_thread(
+            ytt_api.list_transcripts, video_id, proxies=proxies
+        ) if proxies else await asyncio.to_thread(
+            ytt_api.list_transcripts, video_id
+        )
         try:
-            transcript = transcript_list.find_transcript(['en'])
+            transcript = await asyncio.to_thread(transcript_list.find_transcript, ['en'])
         except _errors.NoTranscriptFound:
             # fallback to auto-generated transcript in any available language
             available_langs = [t.language_code for t in transcript_list]
             if not available_langs:
                 raise _errors.NoTranscriptFound(video_id)
-            transcript = transcript_list.find_generated_transcript(available_langs)
+            transcript = await asyncio.to_thread(transcript_list.find_generated_transcript, ['en'])
 
-        fetched = transcript.fetch()
+        fetched = await asyncio.to_thread(transcript.fetch)
         transcript_text = " ".join([snippet.text for snippet in fetched])
         return transcript_text
 
@@ -270,7 +275,7 @@ def download_video(url):
             raise HTTPException(status_code=500, detail=f"Video download failed: {str(e)}")
 # --- Main Function for this Module ---
 
-def analyze_video_url(url: str) -> tuple[str, str | None]:
+async def analyze_video_url(url: str) -> tuple[str, str | None]:
     """
     Analyzes a video URL, determines the platform, downloads video,
     and returns (transcript_text, video_path).
@@ -287,7 +292,7 @@ def analyze_video_url(url: str) -> tuple[str, str | None]:
 
         if "youtube.com" in hostname or "youtu.be" in hostname:
             print("YouTube URL detected, using transcript API with proxy...")
-            selected_proxy = get_proxy_for_request() # Get a random working proxy
+            selected_proxy = await get_proxy_for_request() # Get a random working proxy
             if selected_proxy:
                 print(f"Using proxy: {selected_proxy.get('http://')}")
                 transcript_text = get_transcript_from_youtube(url, proxies=selected_proxy)
