@@ -19,8 +19,13 @@ from dotenv import load_dotenv
 from PIL import Image
 import google.generativeai as genai
 
-GEONODE_API = "https://proxylist.geonode.com/api/proxy-list?filterPort=80&google=false&limit=500&page=1&sort_by=lastChecked&sort_type=desc"
-
+# Multiple proxy sources for fallback
+PROXY_SOURCES = [
+    "https://api.proxyscrape.com/v2/?request=getproxies&protocol=http&timeout=10000&country=all&ssl=all&anonymity=elite",
+    "https://proxylist.geonode.com/api/proxy-list?limit=200&sort_by=lastChecked&sort_type=desc",
+    "https://www.proxy-list.download/api/v1/get?type=http&anon=elite",
+    "https://openproxy.space/list/http"
+]
 
 # --- 1. Global Variable for Proxies ---
 WORKING_PROXIES = []
@@ -30,30 +35,72 @@ PROXY_LOCK = asyncio.Lock() # Lock to prevent race conditions during updates
 async def fetch_proxies_async():
     # Use httpx for async requests
     async with httpx.AsyncClient() as client:
-        try:
-            response = await client.get(GEONODE_API, timeout=10)
-            response.raise_for_status() # Raise exception for bad status codes
-            data = response.json()
-            proxies = []
-            for proxy in data.get("data", []):
-                if "HTTP" in proxy["protocols"] and proxy["anonymity"] == "elite (HIA)":
-                    proxy_str = f"http://{proxy['ip']}:{proxy['port']}"
-                    proxies.append({
-                        "http://": proxy_str, # httpx needs http:// prefix
-                        "https://": proxy_str, # httpx needs https:// prefix
-                    })
-            return proxies
-        except Exception as e:
-            print(f"Error fetching proxies: {e}")
-            return []
+        for api_url in PROXY_SOURCES:
+            try:
+                print(f"Trying proxy source: {api_url}")
+                response = await client.get(api_url, timeout=15)
+                response.raise_for_status()
+
+                if "proxyscrape.com" in api_url or "proxy-list.download" in api_url:
+                    # These APIs return plain text, not JSON
+                    proxy_list = response.text.strip().split('\n')
+                    proxies = []
+                    proxies = proxies[:1000]
+                    for proxy_line in proxy_list:  # Limit to first 1000 proxies to avoid overwhelming
+                        if ':' in proxy_line:
+                            ip, port = proxy_line.split(':', 1)
+                            try:
+                                int(port)  # Validate port is numeric
+                                proxy_str = f"http://{ip}:{port}"
+                                proxies.append({
+                                    "http://": proxy_str,
+                                    "https://": proxy_str,
+                                })
+                            except ValueError:
+                                continue
+                else:
+                    # JSON APIs
+                    data = response.json()
+                    proxies = []
+
+                    if "geonode.com" in api_url:
+                        # Geonode API format
+                        for proxy in data.get("data", []):
+                            if "HTTP" in proxy.get("protocols", []) and "elite" in proxy.get("anonymity", "").lower():
+                                proxy_str = f"http://{proxy['ip']}:{proxy['port']}"
+                                proxies.append({
+                                    "http://": proxy_str,
+                                    "https://": proxy_str,
+                                })
+                    elif "proxy-list.download" in api_url:
+                        # proxy-list.download API format
+                        for proxy in data.get("proxies", []):
+                            if proxy.get("protocol") == "http" and proxy.get("anonymity") in ["elite", "anonymous"]:
+                                proxy_str = f"http://{proxy['ip']}:{proxy['port']}"
+                                proxies.append({
+                                    "http://": proxy_str,
+                                    "https://": proxy_str,
+                                })
+
+                if proxies:
+                    print(f"Successfully fetched {len(proxies)} proxies from {api_url}")
+                    return proxies
+
+            except Exception as e:
+                print(f"Failed to fetch from {api_url}: {e}")
+                continue
+
+        print("All proxy sources failed")
+        return []
 
 async def validate_proxy_async(proxy):
-    async with httpx.AsyncClient(proxies=proxy, timeout=3) as client:
+    async with httpx.AsyncClient(timeout=3) as client:
         try:
             # Check against a reliable target known to work with proxies
-            response = await client.get("https://httpbin.org/ip")
+            response = await client.get("https://httpbin.org/ip", proxies=proxy)
             return response.status_code == 200
         except Exception:
+            print(f"Proxy failed: {proxy} error: {str(e)}")
             return False
 
 async def update_working_proxies():
@@ -64,16 +111,25 @@ async def update_working_proxies():
         print("Failed to fetch new proxies.")
         return
 
+    proxy_list = proxy_list[:1000]
     validated = []
-    # Validate concurrently
-    validation_tasks = [validate_proxy_async(proxy) for proxy in proxy_list]
-    results = await asyncio.gather(*validation_tasks)
+    batch_size = 30
 
-    for proxy, is_working in zip(proxy_list, results):
-        if is_working:
-            validated.append(proxy)
-            if len(validated) >= 10: # Keep top 10 working proxies
-                break
+    # Validate in batches of 30 to avoid bans/errors
+    for i in range(0, len(proxy_list), batch_size):
+        batch = proxy_list[i:i + batch_size]
+        print(f"Validating batch {i//batch_size + 1} ({len(batch)} proxies)...")
+        validation_tasks = [validate_proxy_async(proxy) for proxy in batch]
+        results = await asyncio.gather(*validation_tasks)
+
+        for proxy, is_working in zip(batch, results):
+            if is_working:
+                validated.append(proxy)
+                if len(validated) >= 10: # Keep top 10 working proxies
+                    break
+
+        if len(validated) >= 10:
+            break
 
     if validated:
         async with PROXY_LOCK: # Safely update the global list
@@ -84,15 +140,12 @@ async def update_working_proxies():
         print("⚠️ No working proxies found in the latest fetch.")
 
 # --- 3. Function to Get a Proxy for a Request ---
-def get_proxy_for_request():
+async def get_proxy_for_request():
     """Gets a random proxy from the current working list."""
-    async def get_random_proxy():
-        async with PROXY_LOCK:
-            if not WORKING_PROXIES:
-                return None
-            return random.choice(WORKING_PROXIES)
-    # Run the async part synchronously if needed
-    return asyncio.run(get_random_proxy())
+    async with PROXY_LOCK:
+        if not WORKING_PROXIES:
+            return None
+        return random.choice(WORKING_PROXIES)
 
 # PROXY = {
 #     "http": "http://143.244.57.20:80", 
@@ -191,12 +244,10 @@ async def get_transcript_from_youtube(video_url: str, proxies=None) -> str:
     if not video_id:
         raise ValueError("Invalid YouTube URL or missing video ID.")
 
-    ytt_api = YouTubeTranscriptApi()
     try:
+        api = YouTubeTranscriptApi()
         transcript_list = await asyncio.to_thread(
-            ytt_api.list_transcripts, video_id, proxies=proxies
-        ) if proxies else await asyncio.to_thread(
-            ytt_api.list_transcripts, video_id
+            api.list, video_id
         )
         try:
             transcript = await asyncio.to_thread(transcript_list.find_transcript, ['en'])
@@ -249,6 +300,7 @@ def get_transcript_from_other_platforms(video_url: str) -> str:
         result = pipe(audio_file_path, return_timestamps=True)
         transcript_text = " ".join([chunk['text'] for chunk in result['chunks']])
         return transcript_text
+    
     finally:
         # Clean up the downloaded audio file
         if os.path.exists(audio_file_path):
@@ -257,14 +309,9 @@ def get_transcript_from_other_platforms(video_url: str) -> str:
 def download_video(url):
     output_template = os.path.join(tempfile.gettempdir(), '%(id)s.%(ext)s')
     ydl_opts = {
-    'format': 'bestvideo[height<=480]+bestaudio/best/best',
+    'format': 'best',
     'outtmpl': output_template,
     'quiet': True,
-    'merge_output_format': 'mp4',
-    'postprocessors': [{
-        'key': 'FFmpegVideoConvertor',
-        'preferedformat': 'mp4'
-    }]
 }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -272,7 +319,8 @@ def download_video(url):
             info_dict = ydl.extract_info(url, download=True)
             return ydl.prepare_filename(info_dict)
         except yt_dlp.utils.DownloadError as e:
-            raise HTTPException(status_code=500, detail=f"Video download failed: {str(e)}")
+            print(f"Video download failed: {str(e)}")
+            return None
 # --- Main Function for this Module ---
 
 async def analyze_video_url(url: str) -> tuple[str, str | None]:
@@ -286,21 +334,19 @@ async def analyze_video_url(url: str) -> tuple[str, str | None]:
     transcript_text = ""
 
     try:
-        # Download video first (needed for both paths potentially)
-        print(f"Downloading video for {url}...")
-        video_path = download_video(url)
-
         if "youtube.com" in hostname or "youtu.be" in hostname:
-            print("YouTube URL detected, using transcript API with proxy...")
-            selected_proxy = await get_proxy_for_request() # Get a random working proxy
-            if selected_proxy:
-                print(f"Using proxy: {selected_proxy.get('http://')}")
-                transcript_text = get_transcript_from_youtube(url, proxies=selected_proxy)
-            else:
-                print("No working proxy available, attempting direct connection...")
-                transcript_text = get_transcript_from_youtube(url) # Fallback
+            print("YouTube URL detected, attempting to get transcript first...")
+            transcript_text = await get_transcript_from_youtube(url)
+            # If transcript successful, try to download video for visual context
+            print(f"Transcript obtained, attempting to download video for visual context...")
+            try:
+                video_path = download_video(url)
+            except Exception as e:
+                print(f"Video download failed: {e}, proceeding without visual context.")
+                video_path = None
         else:
-            print(f"Non-YouTube URL detected ({hostname}), using local transcription...")
+            print(f"Non-YouTube URL detected ({hostname}), downloading and transcribing locally...")
+            video_path = download_video(url)
             transcript_text = get_transcript_from_other_platforms(url)
 
         return transcript_text, video_path

@@ -22,6 +22,10 @@ from newsapi import NewsApiClient
 from PIL import Image 
 from video_analyzer import update_working_proxies,analyze_video_url,download_video,get_visual_context
 
+PLATFORM_DOMAINS = [
+    'youtube.com', 'youtu.be', 'x.com', 'twitter.com', 'tiktok.com', 
+    'facebook.com', 'instagram.com', 'reddit.com'
+]
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -112,6 +116,8 @@ safety_settings = {
 
 # --- Custom ML Model (Sync, needs to be threaded) ---
 def predict_source_reliability(domain: str):
+    if domain in PLATFORM_DOMAINS:
+        return "N/A (Platform)", "N/A (Platform)"
     if not all([source_model, vectorizer, mlb]): return "N/A", "N/A"
     try:
         processed_domain = vectorizer.transform([domain])
@@ -272,6 +278,9 @@ async def run_full_analysis(text: str, url: str):
         if isinstance(creation_date, list):
             creation_date = creation_date[0]
         if creation_date:
+            # Make creation_date naive if it's timezone-aware to avoid subtraction error
+            if hasattr(creation_date, 'tzinfo') and creation_date.tzinfo is not None:
+                creation_date = creation_date.replace(tzinfo=None)
             age_days = (datetime.now() - creation_date).days
             source_age = f"{age_days // 365}y, {(age_days % 365) // 30}m old"
     except Exception as e:
@@ -454,8 +463,6 @@ async def analyze_video_v2(request: V2VideoAnalysisRequest):
         # Await text analysis results
         initial_analysis, source_analysis, claims_to_check = await initial_analysis_task
 
-        initial_analysis, source_analysis, claims_to_check = await run_full_analysis(transcript_text, request.url)
-            
         visual_context = []
         if video_download_task:
             try:
@@ -478,8 +485,6 @@ async def analyze_video_v2(request: V2VideoAnalysisRequest):
             async with httpx.AsyncClient() as client:
                 fact_check_tasks = [run_fact_check(claim, client) for claim in claims_to_check]
                 fact_check_results = await asyncio.gather(*fact_check_tasks)
-        
-        visual_context = await visual_context_task
 
         final_response = {
             "initial_analysis": initial_analysis,
