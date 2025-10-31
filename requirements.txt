@@ -9,6 +9,7 @@ transformers
 torch
 opencv-python
 scikit-learn
+aiohttp
 httpx
 tldextract
 Pillow
