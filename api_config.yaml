@@ -1,0 +1,295 @@
+swagger: '2.0'
+info:
+  title: TruthGuard AI API
+  description: Secure API for misinformation detection and analysis
+  version: 1.0.0
+
+
+host: truth-guard-ai-309053470356.asia-south1.run.app
+basePath: /v2
+schemes:
+  - https
+
+# --- Security Definitions ---
+securityDefinitions:
+  ApiKeyAuth:
+    type: apiKey
+    name: x-api-key           # Header clients must send, e.g., x-api-key: YOUR_KEY
+    in: header
+
+# --- Apply security globally ---
+security:
+  - ApiKeyAuth: []
+
+# --- Definitions ---
+definitions:
+  V2AnalysisRequest:
+    type: object
+    properties:
+      text:
+        type: string
+        description: The text content to analyze
+      url:
+        type: string
+        description: The URL of the source
+    required:
+      - text
+      - url
+
+  V2VideoAnalysisRequest:
+    type: object
+    properties:
+      url:
+        type: string
+        description: The URL of the video to analyze
+    required:
+      - url
+
+  V2ImageAnalysisRequest:
+    type: object
+    properties:
+      image_url:
+        type: string
+        description: The URL of the image to analyze
+    required:
+      - image_url
+
+  V2ImageUploadRequest:
+    type: object
+    properties:
+      image_data:
+        type: string
+        description: Base64-encoded image data
+      filename:
+        type: string
+        description: Optional filename for the image
+    required:
+      - image_data
+
+  AnalysisResponse:
+    type: object
+    properties:
+      initial_analysis:
+        type: object
+        properties:
+          credibility_score:
+            type: integer
+          explanation:
+            type: string
+      source_analysis:
+        type: object
+        properties:
+          political_bias:
+            type: string
+          factuality_rating:
+            type: string
+          domain_age:
+            type: string
+          wikipedia_notes:
+            type: string
+      fact_checks:
+        type: array
+        items:
+          type: object
+      contradictions:
+        type: string
+
+  ImageAnalysisResponse:
+    type: object
+    properties:
+      initial_analysis:
+        type: object
+        properties:
+          credibility_score:
+            type: integer
+          explanation:
+            type: string
+      source_analysis:
+        type: object
+      fact_checks:
+        type: array
+        items:
+          type: object
+      visual_forensics:
+        type: array
+        items:
+          type: object
+      filename:
+        type: string
+
+  VideoAnalysisResponse:
+    type: object
+    properties:
+      initial_analysis:
+        type: object
+        properties:
+          credibility_score:
+            type: integer
+          explanation:
+            type: string
+      source_analysis:
+        type: object
+        properties:
+          political_bias:
+            type: string
+          factuality_rating:
+            type: string
+          domain_age:
+            type: string
+          wikipedia_notes:
+            type: string
+      fact_checks:
+        type: array
+        items:
+          type: object
+      visual_context:
+        type: array
+        items:
+          type: object
+
+paths:
+  /health:
+    get:
+      summary: Health check endpoint
+      operationId: healthCheck
+      produces:
+        - application/json
+      responses:
+        200:
+          description: API is running
+          schema:
+            type: object
+            properties:
+              status:
+                type: string
+      x-google-backend:
+        address: https://truth-guard-ai-309053470356.asia-south1.run.app
+        path_translation: APPEND_PATH_TO_ADDRESS
+
+  /analyze:
+    post:
+      summary: Analyze a text for misinformation
+      operationId: analyzeText
+      consumes:
+        - application/json
+      produces:
+        - application/json
+      parameters:
+        - in: body
+          name: analysisRequest
+          required: true
+          schema:
+            $ref: '#/definitions/V2AnalysisRequest'
+      responses:
+        200:
+          description: Analysis successful
+          schema:
+            $ref: '#/definitions/AnalysisResponse'
+        401:
+          description: Unauthorized – API Key missing or invalid
+        500:
+          description: Internal Error
+      x-google-backend:
+        address: https://truth-guard-ai-309053470356.asia-south1.run.app
+        path_translation: APPEND_PATH_TO_ADDRESS
+
+  /upload_and_analyze_image:
+    post:
+      summary: Upload and analyze an image for misinformation
+      operationId: uploadAndAnalyzeImage
+      consumes:
+        - application/json
+      produces:
+        - application/json
+      parameters:
+        - in: body
+          name: imageUploadRequest
+          required: true
+          schema:
+            $ref: '#/definitions/V2ImageUploadRequest'
+      responses:
+        200:
+          description: Image analysis successful
+          schema:
+            $ref: '#/definitions/ImageAnalysisResponse'
+        400:
+          description: Bad Request – Invalid file type
+        401:
+          description: Unauthorized – API Key missing or invalid
+        500:
+          description: Internal Error
+      x-google-backend:
+        address: https://truth-guard-ai-309053470356.asia-south1.run.app
+        path_translation: APPEND_PATH_TO_ADDRESS
+
+  /analyze_video:
+    post:
+      summary: Analyze a video URL for misinformation
+      operationId: analyzeVideo
+      consumes:
+        - application/json
+      produces:
+        - application/json
+      parameters:
+        - in: body
+          name: videoAnalysisRequest
+          required: true
+          schema:
+            $ref: '#/definitions/V2VideoAnalysisRequest'
+      responses:
+        200:
+          description: Video analysis successful
+          schema:
+            $ref: '#/definitions/VideoAnalysisResponse'
+        401:
+          description: Unauthorized – API Key missing or invalid
+        500:
+          description: Internal Error
+      x-google-backend:
+        address: https://truth-guard-ai-309053470356.asia-south1.run.app
+        path_translation: APPEND_PATH_TO_ADDRESS
+
+  /analyze_image:
+    post:
+      summary: Analyze an image URL for misinformation
+      operationId: analyzeImage
+      consumes:
+        - application/json
+      produces:
+        - application/json
+      parameters:
+        - in: body
+          name: imageAnalysisRequest
+          required: true
+          schema:
+            $ref: '#/definitions/V2ImageAnalysisRequest'
+      responses:
+        200:
+          description: Image analysis successful
+          schema:
+            type: object
+            properties:
+              initial_analysis:
+                type: object
+                properties:
+                  credibility_score:
+                    type: integer
+                  explanation:
+                    type: string
+              source_analysis:
+                type: object
+              fact_checks:
+                type: array
+                items:
+                  type: object
+              visual_forensics:
+                type: array
+                items:
+                  type: object
+        401:
+          description: Unauthorized – API Key missing or invalid
+        500:
+          description: Internal Error
+      x-google-backend:
+        address: https://truth-guard-ai-309053470356.asia-south1.run.app
+        path_translation: APPEND_PATH_TO_ADDRESS

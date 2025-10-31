@@ -1,7 +1,9 @@
 # main.py (Final Corrected Version with All Fixes)
 import os
 import google.generativeai as genai
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from google.cloud import firestore
+from fastapi import FastAPI, HTTPException, UploadFile, File,Security,Depends
+from fastapi.security import APIKeyHeader
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -21,6 +23,42 @@ from google.cloud import vision
 from newsapi import NewsApiClient
 from PIL import Image 
 from video_analyzer import update_working_proxies,analyze_video_url,download_video,get_visual_context
+
+db = firestore.AsyncClient()
+
+API_KEY_HEADER = APIKeyHeader(name="x-api-key")
+
+# --- 2. Load "Pro" keys from your environment ---
+# You can just put a comma-separated list in your .env file
+PRO_API_KEYS = set(os.environ.get("PRO_API_KEYS", "").split(','))
+
+
+# --- 3. Create a dependency to check the key ---
+# Add this new function to main.py
+async def get_api_tier(api_key: str = Security(API_KEY_HEADER)):
+    """
+    Checks a key against the Firestore database and returns its tier.
+    This is the "lock" for our API.
+    """
+    if not api_key:
+        raise HTTPException(status_code=401, detail="API Key is missing")
+
+    try:
+        # Fetch the key document from Firestore
+        key_doc_ref = db.collection('api_keys').document(api_key)
+        key_doc = await key_doc_ref.get()
+
+        if not key_doc.exists:
+            raise HTTPException(status_code=401, detail="Invalid API Key")
+        
+        # We found the key! Return its tier.
+        tier = key_doc.to_dict().get("tier", "free")
+        return tier
+
+    except Exception as e:
+        print(f"Auth error: {e}")
+        raise HTTPException(status_code=500, detail="Could not validate API key")
+
 
 PLATFORM_DOMAINS = [
     'youtube.com', 'youtu.be', 'x.com', 'twitter.com', 'tiktok.com', 
@@ -357,16 +395,21 @@ async def run_full_analysis(text: str, url: str):
 
     # Execute all tasks concurrently
     results = await asyncio.gather(
-        claims_task,
-        whois_task,
-        wiki_notes_task,
-        *context_tasks
+        get_text_category_and_topic(text), # We'll assume this is critical
+        extract_claims_from_text(text),
+        asyncio.to_thread(whois.whois, domain),
+        get_wikipedia_notes(domain),
+        get_live_news_context(topic if 'topic' in locals() else None),
+        predict_source_reliability(domain, "Unknown", "Unknown"), # Run this for now
+        return_exceptions=True
     )
 
-    claims_to_check = results[0]
-    domain_info = results[1]
-    wiki_notes_for_source = results[2]
-    dynamic_context_results = results[3:]
+    claims_to_check = results[1] if not isinstance(results[1], Exception) else []
+    domain_info = results[2] if not isinstance(results[2], Exception) else None
+    wiki_notes_for_source = results[3] if not isinstance(results[3], Exception) else "Wikipedia lookup failed."
+    dynamic_context = results[4] if not isinstance(results[4], Exception) else "News context lookup failed."
+    (bias, factuality) = results[5] if not isinstance(results[5], Exception) else ("Error", "Error")
+
 
     # WHOIS -> domain age
     source_age = "Unknown"
@@ -388,16 +431,20 @@ async def run_full_analysis(text: str, url: str):
     # Now call predict_source_reliability with the available data
     bias_from_model, factuality_from_model = await predict_source_reliability(domain, source_age, wiki_notes_for_source)
 
-    final_context_str = "\n".join([str(r) for r in dynamic_context_results]) if dynamic_context_results else "No specific context gathered."
+    final_context_str = dynamic_context  # Use the dynamic_context directly
 
     # 3) Final reasoning prompt
     today_date = datetime.now().strftime("%B %d, %Y")
     final_prompt = f"""
     You are an expert fact-checker. Analyze the following text using the ground-truth context gathered by your tools.
 
-    --- GROUND TRUTH CONTEXT ---
+    --- GROUND TRUTH CONTEXT (FOR SOURCE: {domain}) ---
+    1. Source Domain Age: {source_age}
+    2. Source Wikipedia Summary: {wiki_notes_for_source}
+
+    --- GROUND TRUTH CONTEXT (FOR TEXT) ---
     1. Current Date: {today_date}
-    2. Context for Topic '{topic}': {final_context_str}
+    2. Context for Topic '{topic}': {dynamic_context}
     --- END CONTEXT ---
 
     Now, analyze the text below based *only* on the text itself and the context provided.
@@ -419,12 +466,12 @@ async def run_full_analysis(text: str, url: str):
     parts = response.text.split('|||')
     if len(parts) < 3:
         raise ValueError("Final AI response did not have 3 parts.")
-    
-    contradiction_text = await find_contradictions(text, final_context_str, explanation_clean)
 
     score_match = re.search(r'\d+', parts[0])
     score = int(score_match.group(0)) if score_match else 0
     explanation_clean = parts[1].split(':', 1)[-1].strip()
+
+    contradiction_text = await find_contradictions(text, final_context_str, explanation_clean)
 
     initial_analysis = {"credibility_score": score, "explanation": explanation_clean}
     source_analysis = {
@@ -442,33 +489,50 @@ async def run_full_analysis(text: str, url: str):
 # --- 5. FastAPI Endpoints (All Async) ---
 
 
-@app.get("/")
+@app.get("/health")
 def read_root():
     return {"status": "TruthGuard AI v2 Backend is running!"}
 
 @app.post("/v2/analyze")
-async def analyze_v2(request: V2AnalysisRequest):
-    try:
-        initial_analysis, source_analysis, claims_to_check, contradictions = await run_full_analysis(request.text, request.url)
-        
-        fact_check_results = []
-        if claims_to_check:
-            async with httpx.AsyncClient() as client:
-                fact_check_tasks = [run_fact_check(claim, client) for claim in claims_to_check]
-                fact_check_results = await asyncio.gather(*fact_check_tasks)
-                
-        final_response = {
-            "initial_analysis": initial_analysis,
-            "source_analysis": source_analysis,
-            "fact_checks": fact_check_results,
-            "contradictions": contradictions
-        }
-        return final_response
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"An error occurred: {type(e).__name__} - {e}")
+async def analyze_v2(request: V2AnalysisRequest, api_tier: str = Depends(get_api_tier)):
+    
+    if api_tier == "free":
+        # --- Run a "Lite" analysis (fast, cheap) ---
+        #  just the basic AI summary without the agentic grounding
+        prompt = f"Analyze this text: {request.text}"
+        response = await text_model.generate_content_async(prompt)
+        return {"initial_analysis": {"explanation": response.text}, "tier": "free"}
+    
+    elif api_tier == "pro":
+        # --- Run the FULL,  agentic pipeline ---
+        initial_analysis, source_analysis, claims_to_check, contradictions = \
+            await run_full_analysis(request.text, request.url)
 
+        try:
+            initial_analysis, source_analysis, claims_to_check, contradictions = await run_full_analysis(request.text, request.url)
+            
+            fact_check_results = []
+            if claims_to_check:
+                async with httpx.AsyncClient() as client:
+                    fact_check_tasks = [run_fact_check(claim, client) for claim in claims_to_check]
+                    fact_check_results = await asyncio.gather(*fact_check_tasks)
+                    
+            final_response = {
+                "initial_analysis": initial_analysis,
+                "source_analysis": source_analysis,
+                "fact_checks": fact_check_results,
+                "contradictions": contradictions,
+                "tier": "pro"
+            }
+            return final_response
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"An error occurred: {type(e).__name__} - {e}")
+
+    else:
+        raise HTTPException(status_code=403, detail="Unknown API tier")
+    
 @app.post("/v2/upload_and_analyze_image")
-async def upload_and_analyze_image(file: UploadFile = File(...)):
+async def upload_and_analyze_image(file: UploadFile = File(...), api_tier: str = Depends(get_api_tier)):
     try:
         # Validate file type
         if not file.content_type.startswith('image/'):
@@ -554,7 +618,7 @@ async def upload_and_analyze_image(file: UploadFile = File(...)):
 
 
 @app.post("/v2/analyze_video")
-async def analyze_video_v2(request: V2VideoAnalysisRequest):
+async def analyze_video_v2(request: V2VideoAnalysisRequest, api_tier: str = Depends(get_api_tier)):
     video_path = None
     transcript_text = ""
     download_url = None
@@ -620,7 +684,7 @@ async def analyze_video_v2(request: V2VideoAnalysisRequest):
 
 
 @app.post("/v2/analyze_image")
-async def analyze_image_v2(request: V2ImageAnalysisRequest):
+async def analyze_image_v2(request: V2ImageAnalysisRequest, api_tier: str = Depends(get_api_tier)):
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get(request.image_url)

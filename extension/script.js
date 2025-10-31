@@ -1,4 +1,8 @@
 // script.js (Manifest V3)
+// In a real product, the user would log in and you'd store this securely.
+const API_KEY = "fYL8x7T3EQ2Oovm7mZyU";
+const API_GATEWAY_URL = "https://truthguardai-gateway-3xz6gfx0.an.gateway.dev"
+
 
 document.addEventListener('DOMContentLoaded', () => {
     // Get references to all the UI sections
@@ -87,15 +91,14 @@ function safeGetString(obj, path, fallback = '') {
  */
 async function performAnalysis(type, body) {
     const endpoints = {
-        text: 'https://truth-guard-ai-309053470356.asia-south1.run.app/v2/analyze',
-        video: 'https://truth-guard-ai-309053470356.asia-south1.run.app/v2/analyze_video',
-        image: 'https://truth-guard-ai-309053470356.asia-south1.run.app/v2/analyze_image'
-    };
+        text: `${API_GATEWAY_URL}/v2/analyze`,
+        video: `${API_GATEWAY_URL}/v2/analyze_video`,
+        image: `${API_GATEWAY_URL}/v2/analyze_image` };
 
     try {
         const response = await fetch(endpoints[type], {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
             body: JSON.stringify(body),
         });
         if (!response.ok) {
