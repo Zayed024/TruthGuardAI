@@ -504,10 +504,6 @@ async def analyze_v2(request: V2AnalysisRequest, api_tier: str = Depends(get_api
         return {"initial_analysis": {"explanation": response.text}, "tier": "free"}
     
     elif api_tier == "pro":
-        # --- Run the FULL,  agentic pipeline ---
-        initial_analysis, source_analysis, claims_to_check, contradictions = \
-            await run_full_analysis(request.text, request.url)
-
         try:
             initial_analysis, source_analysis, claims_to_check, contradictions = await run_full_analysis(request.text, request.url)
             
