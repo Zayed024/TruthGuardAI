@@ -121,6 +121,19 @@ async function analyzeImage(imageUrl) {
  * @param {object} data - The complete analysis data from the backend.
  */
 function displayResults(data) {
+    // --- 1. ADD THIS NEW BLOCK AT THE TOP OF THE FUNCTION ---
+    const contradictionCard = document.getElementById('contradiction-card');
+    const contradictionText = document.getElementById('contradiction-text');
+
+    if (data.contradictions && !data.contradictions.toLowerCase().includes("no contradiction")) {
+        contradictionText.textContent = data.contradictions;
+        contradictionCard.classList.remove('hidden');
+    } else {
+        contradictionCard.classList.add('hidden');
+    }
+
+    // --- 2. The rest of your displayResults function is unchanged ---
+
     // --- Credibility Score Gauge ---
     const score = data.initial_analysis.credibility_score;
     const gaugeFill = document.querySelector('.score-gauge__fill');

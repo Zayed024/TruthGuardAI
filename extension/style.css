@@ -359,3 +359,27 @@ header h1 {
 .wiki-notes-container p {
     margin: 0;
 }
+
+/* Add to the end of style.css */
+
+.card-alert {
+    border-color: #f5c6cb;
+    background-color: #f8d7da;
+    color: #721c24;
+}
+
+.card-alert .card-header {
+    color: #721c24;
+}
+
+.card-alert .card-header svg {
+    margin-right: 8px;
+    /* The SVG path color won't be set by CSS fill,
+       but the icon itself is a dark color */
+}
+
+#contradiction-text {
+    font-size: 0.9em;
+    font-weight: 500;
+    line-height: 1.5;
+}

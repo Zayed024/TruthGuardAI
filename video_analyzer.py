@@ -1,5 +1,4 @@
 # video_analyzer.py
-
 import os
 from urllib.parse import urlparse, parse_qs
 from youtube_transcript_api import YouTubeTranscriptApi, _errors
@@ -18,6 +17,7 @@ import httpx
 from dotenv import load_dotenv
 from PIL import Image
 import google.generativeai as genai
+import aiohttp  # <-- Add this line near your other imports
 
 # Multiple proxy sources for fallback
 PROXY_SOURCES = [
@@ -41,12 +41,13 @@ async def fetch_proxies_async():
                 response = await client.get(api_url, timeout=15)
                 response.raise_for_status()
 
-                if "proxyscrape.com" in api_url or "proxy-list.download" in api_url:
+                if "proxyscrape.com" in api_url or "proxy-list.download" in api_url or "openproxy.space" in api_url:
                     # These APIs return plain text, not JSON
                     proxy_list = response.text.strip().split('\n')
+                    proxy_list = proxy_list[:1000]  # Limit to first 1000 proxies to avoid overwhelming
                     proxies = []
-                    proxies = proxies[:1000]
-                    for proxy_line in proxy_list:  # Limit to first 1000 proxies to avoid overwhelming
+                    for proxy_line in proxy_list:
+                        proxy_line = proxy_line.strip()
                         if ':' in proxy_line:
                             ip, port = proxy_line.split(':', 1)
                             try:
@@ -93,18 +94,39 @@ async def fetch_proxies_async():
         print("All proxy sources failed")
         return []
 
-async def validate_proxy_async(proxy):
-    async with httpx.AsyncClient(timeout=3) as client:
-        try:
-            # Check against a reliable target known to work with proxies
-            response = await client.get("https://httpbin.org/ip", proxies=proxy)
-            return response.status_code == 200
-        except Exception:
-            print(f"Proxy failed: {proxy} error: {str(e)}")
-            return False
+async def validate_proxy_async(proxy: dict) -> bool:
+    """
+    Validates a proxy using aiohttp.
+    """
+    # aiohttp takes the proxy as a string, not a dict.
+    proxy_str = proxy.get("http://")
+    if not proxy_str:
+        return False
+
+    # Set a 3-second timeout
+    timeout = aiohttp.ClientTimeout(total=3)
+    
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            
+            # --- THE FIX IS HERE ---
+            # Change this URL from "https" to "http"
+            validation_url = "http://httpbin.org/ip"
+            # --- END FIX ---
+
+            async with session.get(validation_url, proxy=proxy_str) as response:
+                return response.status == 200
+    except Exception as e:
+        print(f"Proxy failed: {proxy_str} error: {str(e)}")
+        return False
 
 async def update_working_proxies():
     """Fetches new proxies and validates them, updating the global list."""
+
+    # --- ADD THIS LINE ---
+    print(f"--- HTTPIX VERSION ACTUALLY RUNNING: {httpx.__version__} ---")
+    # --- END ADD ---
+
     print("Updating working proxy list...")
     proxy_list = await fetch_proxies_async()
     if not proxy_list:
@@ -162,7 +184,7 @@ dtype = torch.float16 if torch.cuda.is_available() else torch.float32
 
 
 model = AutoModelForSpeechSeq2Seq.from_pretrained(
-    MODEL_NAME, dtype=dtype, low_cpu_mem_usage=True, use_safetensors=True
+    MODEL_NAME, torch_dtype=dtype, low_cpu_mem_usage=True, use_safetensors=True
 )
 model.to(device)
 
@@ -176,7 +198,7 @@ pipe = pipeline(
     tokenizer=processor.tokenizer,
     feature_extractor=processor.feature_extractor,
     max_new_tokens=128,
-    dtype=dtype,
+    torch_dtype=dtype,
     device=device,
 )
 load_dotenv()
@@ -268,13 +290,13 @@ async def get_transcript_from_youtube(video_url: str, proxies=None) -> str:
         raise HTTPException(status_code=500, detail=f"Transcript fetch failed: {type(e).__name__} - {e}")
 
 
-def get_transcript_from_other_platforms(video_url: str) -> str:
+def get_transcript_from_other_platforms(video_url: str, proxy: str | None = None) -> str:
     """
     Downloads audio from any yt-dlp supported URL and transcribes it.
     """
     # Define a specific output template for our audio file in the temp directory
     output_template = os.path.join(tempfile.gettempdir(), '%(id)s.%(ext)s')
-    
+
     ydl_opts = {
         'format': 'bestaudio/best',
         'outtmpl': output_template,
@@ -285,13 +307,19 @@ def get_transcript_from_other_platforms(video_url: str) -> str:
         }],
         'quiet': True, # Suppress console output from yt-dlp
     }
-    
+
+    # --- Add this ---
+    if proxy:
+        ydl_opts['proxy'] = proxy
+        print(f"Using proxy for audio download: {proxy}")
+    # --- End Add ---
+
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info_dict = ydl.extract_info(video_url, download=True)
-        
+
         base_filename = os.path.splitext(ydl.prepare_filename(info_dict))[0]
         audio_file_path = base_filename + '.mp3'
-        
+
     try:
         if not os.path.exists(audio_file_path):
              raise FileNotFoundError(f"FFmpeg failed to create the audio file: {audio_file_path}")
@@ -300,19 +328,25 @@ def get_transcript_from_other_platforms(video_url: str) -> str:
         result = pipe(audio_file_path, return_timestamps=True)
         transcript_text = " ".join([chunk['text'] for chunk in result['chunks']])
         return transcript_text
-    
+
     finally:
         # Clean up the downloaded audio file
         if os.path.exists(audio_file_path):
             os.remove(audio_file_path)
 
-def download_video(url):
+def download_video(url, proxy: str | None = None):
     output_template = os.path.join(tempfile.gettempdir(), '%(id)s.%(ext)s')
     ydl_opts = {
-    'format': 'best',
-    'outtmpl': output_template,
-    'quiet': True,
-}
+        'format': 'best',
+        'outtmpl': output_template,
+        'quiet': True,
+    }
+
+    # --- Add this ---
+    if proxy:
+        ydl_opts['proxy'] = proxy
+        print(f"Using proxy for video download: {proxy}")
+    # --- End Add ---
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         try:
@@ -327,27 +361,71 @@ async def analyze_video_url(url: str) -> tuple[str, str | None]:
     """
     Analyzes a video URL, determines the platform, downloads video,
     and returns (transcript_text, video_path).
-    Handles proxy selection for YouTube.
+    Handles proxy selection for fallback.
     """
     hostname = urlparse(url).hostname
     video_path = None
     transcript_text = ""
+    proxy_str = None # Variable to hold the proxy string
+
+    # Helper function to get the proxy string just once
+    async def get_proxy():
+        nonlocal proxy_str
+        if proxy_str is None: # Only fetch if we haven't already
+            proxy_dict = await get_proxy_for_request()
+            if proxy_dict:
+                proxy_str = proxy_dict.get("http://") # Get string for yt-dlp
+                print(f"Using proxy: {proxy_str}")
+            else:
+                print("No working proxy available.")
+                proxy_str = "" # Set to empty to prevent re-fetching
+        return proxy_str if proxy_str else None # Return None if empty
 
     try:
         if "youtube.com" in hostname or "youtu.be" in hostname:
             print("YouTube URL detected, attempting to get transcript first...")
-            transcript_text = await get_transcript_from_youtube(url)
-            # If transcript successful, try to download video for visual context
-            print(f"Transcript obtained, attempting to download video for visual context...")
             try:
-                video_path = download_video(url)
+                # 1. Try to get transcript from API (no proxy)
+                transcript_text = await get_transcript_from_youtube(url)
+                print("Transcript obtained from API.")
+
+                # If successful, download video for visual context (no proxy)
+                try:
+                    video_path = download_video(url, proxy=None)
+                except Exception as e:
+                    print(f"Video download for context failed: {e}, proceeding without visual context.")
+                    video_path = None
+
             except Exception as e:
-                print(f"Video download failed: {e}, proceeding without visual context.")
-                video_path = None
+                # 2. API failed. Fall back to proxy download and local transcription.
+                print(f"Transcript API failed ({e}). Falling back to proxy download and local transcription.")
+
+                # Get proxy
+                proxy = await get_proxy()
+
+                # Download video (for visual context) using proxy
+                video_path = download_video(url, proxy=proxy)
+
+                # Download audio (for transcription) using proxy
+                # We run this in a thread as it's a blocking I/O operation
+                transcript_text = await asyncio.to_thread(
+                    get_transcript_from_other_platforms, url, proxy=proxy
+                )
+
         else:
+            # 3. Not a YouTube URL. Download using proxy from the start.
             print(f"Non-YouTube URL detected ({hostname}), downloading and transcribing locally...")
-            video_path = download_video(url)
-            transcript_text = get_transcript_from_other_platforms(url)
+
+            # Get proxy
+            proxy = await get_proxy()
+
+            # Download video (for visual context)
+            video_path = download_video(url, proxy=proxy)
+
+            # Download audio and transcribe (in thread)
+            transcript_text = await asyncio.to_thread(
+                get_transcript_from_other_platforms, url, proxy=proxy
+            )
 
         return transcript_text, video_path
 

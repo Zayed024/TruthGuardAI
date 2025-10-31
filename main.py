@@ -114,14 +114,51 @@ safety_settings = {
 
 # --- 2. Asynchronous Tool-Augmented Functions ---
 
+async def find_contradictions(text: str, context: str, initial_explanation: str):
+    """
+    An agentic reasoning step to explicitly check for contradictions.
+    """
+    try:
+        prompt = f"""
+        You are a logic-checking agent. Your *only* job is to find direct contradictions between the 'Original Text' and the 'Ground Truth'.
+        The 'Initial Analysis' is provided for context, but your primary comparison must be between the Text and the Ground Truth.
+
+        --- Original Text ---
+        {text[:2000]}
+
+        --- Ground Truth Context ---
+        {context}
+
+        --- Initial Analysis (for context) ---
+        {initial_explanation}
+
+        Task: List any direct contradictions found between the 'Original Text' and the 'Ground Truth'.
+        Be concise. If there are no contradictions, return "No contradictions found."
+        """
+        response = await text_model.generate_content_async(prompt, safety_settings=safety_settings)
+        return response.text.strip()
+    except Exception as e:
+        print(f"Contradiction check failed: {e}")
+        return "Contradiction check failed to run."
+
 # --- Custom ML Model (Sync, needs to be threaded) ---
-async def predict_source_reliability(domain: str):
+async def predict_source_reliability(domain: str, source_age: str, wiki_notes: str):
     if domain in PLATFORM_DOMAINS:
         return "N/A (Platform)", "N/A (Platform)"
     if not all([source_model, vectorizer, mlb]):
         # Fallback: Use Gemini to classify bias and factuality
         try:
-            prompt = f"Classify the political bias and factuality rating of the website '{domain}'. Return as: Bias|||Factuality"
+            prompt = f"""
+            Analyze the provided ground truth for a source to determine its bias and factuality.
+            
+            --- GROUND TRUTH (FOR SOURCE: {domain}) ---
+            1. Source Domain Age: {source_age}
+            2. Source Wikipedia Summary: {wiki_notes}
+            --- END CONTEXT ---
+            
+            Based *only* on the context above, classify the source.
+            Return as: Bias|||Factuality
+            """
             response = await text_model.generate_content_async(prompt, safety_settings=safety_settings)
             parts = response.text.strip().split('|||')
             if len(parts) == 2:
@@ -130,19 +167,32 @@ async def predict_source_reliability(domain: str):
         except Exception:
             return "N/A", "N/A"
     try:
-        processed_domain = vectorizer.transform([domain])
-        prediction_binarized = source_model.predict(processed_domain)
-        prediction_labels = mlb.inverse_transform(prediction_binarized)
-        if prediction_labels and prediction_labels[0]:
-            fact_pred, bias_pred = prediction_labels[0]
-            return bias_pred.title(), fact_pred.title()
-        else:
+        def _run_ml_prediction():
+            processed_domain = vectorizer.transform([domain])
+            prediction_binarized = source_model.predict(processed_domain)
+            prediction_labels = mlb.inverse_transform(prediction_binarized)
+            if prediction_labels and prediction_labels[0]:
+                fact_pred, bias_pred = prediction_labels[0]
+                return bias_pred.title(), fact_pred.title()
             return "Not Rated", "Not Rated"
+
+        # Await the threaded execution
+        return await asyncio.to_thread(_run_ml_prediction)
     except Exception as e:
         print(f"Model prediction failed: {e}")
         # Fallback: Use Gemini
         try:
-            prompt = f"Classify the political bias and factuality rating of the website '{domain}'. Return as: Bias|||Factuality"
+            prompt = f"""
+        Analyze the provided ground truth for a source to determine its bias and factuality.
+        
+        --- GROUND TRUTH (FOR SOURCE: {domain}) ---
+        1. Source Domain Age: {source_age}
+        2. Source Wikipedia Summary: {wiki_notes}
+        --- END CONTEXT ---
+        
+        Based *only* on the context above, classify the source.
+        Return as: Bias|||Factuality
+        """
             response = await text_model.generate_content_async(prompt, safety_settings=safety_settings)
             parts = response.text.strip().split('|||')
             if len(parts) == 2:
@@ -151,21 +201,54 @@ async def predict_source_reliability(domain: str):
         except Exception:
             return "Error", "Error"
 
-# --- Wikipedia (Sync, needs to be threaded) ---
-def get_wikipedia_notes(domain: str):
+
+async def get_wikipedia_notes(topic: str): # Now an ASYNC function
+    """
+    Uses an AI-powered agent to read a full Wikipedia article and
+    extract key information about controversies or bias.
+    """
     try:
-        page = wiki_wiki.page(domain)
-        if not page.exists(): return "No Wikipedia page found."
-        for section in page.sections:
-            title_lower = section.title.lower()
-            if "controversies" in title_lower or "criticism" in title_lower:
-                sentences = re.split(r'(?<!\w\.\w.)(?<![A-Z][a-z]\.)(?<=\.|\?)\s', section.text)
-                summary = ". ".join(filter(None, sentences[:2])) + "."
-                if len(summary) > 20:
-                    return f"From '{section.title}': {summary}"
-        return "No specific 'Controversy' or 'Criticism' section found."
-    except Exception:
-        return "Error fetching Wikipedia data."
+        # Step 1: Fetch the full page text (run in a thread)
+        def fetch_page_text():
+            page = wiki_wiki.page(topic)
+            if not page.exists():
+                return None
+            return page.text # Get the FULL text of the article
+        
+        full_article_text = await asyncio.to_thread(fetch_page_text)
+
+        if not full_article_text:
+            return "No Wikipedia page found for this topic."
+
+        # Step 2: Create a dedicated "research" prompt for the AI
+        research_prompt = f"""
+        You are a research assistant. I will provide the full text of a Wikipedia article.
+        Your job is to read the entire text and find any sections, sentences, or information related to:
+        - Controversies
+        - Criticism
+        - Allegations of bias
+        - Scandals
+        - Legal issues
+        - Political stance
+
+        If you find relevant information, summarize the key points in 1-2 concise sentences.
+        If you find no significant information on these topics, return "No significant controversies or criticisms noted on Wikipedia."
+
+        Here is the article text:
+        ---
+        {full_article_text[:15000]} 
+        ---
+        """ # Use a large chunk of the text
+
+        # Step 3: Make a dedicated, internal call to the AI model
+        response = await text_model.generate_content_async(research_prompt, safety_settings=safety_settings)
+        
+        # Step 4: Return the AI's smart summary
+        return response.text.strip()
+
+    except Exception as e: 
+        print(f"Wikipedia agentic lookup error: {e}")
+        return "Error fetching or processing Wikipedia data."
 
 # --- Google Vision (Sync, needs to be threaded) ---
 def get_reverse_image_search_results(image_data: bytes):
@@ -269,24 +352,21 @@ async def run_full_analysis(text: str, url: str):
 
     # Standard tasks
     claims_task = extract_claims_from_text(text)
-    bias_task = predict_source_reliability(domain)
     whois_task = asyncio.to_thread(whois.whois, domain)
-    wiki_notes_task = asyncio.to_thread(get_wikipedia_notes, domain)
+    wiki_notes_task = get_wikipedia_notes(domain)
 
     # Execute all tasks concurrently
     results = await asyncio.gather(
         claims_task,
-        bias_task,
         whois_task,
         wiki_notes_task,
         *context_tasks
     )
 
     claims_to_check = results[0]
-    bias_from_model, factuality_from_model = results[1]
-    domain_info = results[2]
-    wiki_notes_for_source = results[3]
-    dynamic_context_results = results[4:]
+    domain_info = results[1]
+    wiki_notes_for_source = results[2]
+    dynamic_context_results = results[3:]
 
     # WHOIS -> domain age
     source_age = "Unknown"
@@ -304,6 +384,9 @@ async def run_full_analysis(text: str, url: str):
             source_age = f"{age_days // 365}y, {(age_days % 365) // 30}m old"
     except Exception as e:
         print(f"WHOIS lookup failed: {e}")
+
+    # Now call predict_source_reliability with the available data
+    bias_from_model, factuality_from_model = await predict_source_reliability(domain, source_age, wiki_notes_for_source)
 
     final_context_str = "\n".join([str(r) for r in dynamic_context_results]) if dynamic_context_results else "No specific context gathered."
 
@@ -336,6 +419,8 @@ async def run_full_analysis(text: str, url: str):
     parts = response.text.split('|||')
     if len(parts) < 3:
         raise ValueError("Final AI response did not have 3 parts.")
+    
+    contradiction_text = await find_contradictions(text, final_context_str, explanation_clean)
 
     score_match = re.search(r'\d+', parts[0])
     score = int(score_match.group(0)) if score_match else 0
@@ -349,7 +434,7 @@ async def run_full_analysis(text: str, url: str):
         "wikipedia_notes": wiki_notes_for_source
     }
 
-    return initial_analysis, source_analysis, claims_to_check
+    return initial_analysis, source_analysis, claims_to_check,contradiction_text
 
 
 # (Startup handled by FastAPI lifespan handler)
@@ -364,7 +449,7 @@ def read_root():
 @app.post("/v2/analyze")
 async def analyze_v2(request: V2AnalysisRequest):
     try:
-        initial_analysis, source_analysis, claims_to_check = await run_full_analysis(request.text, request.url)
+        initial_analysis, source_analysis, claims_to_check, contradictions = await run_full_analysis(request.text, request.url)
         
         fact_check_results = []
         if claims_to_check:
@@ -375,7 +460,8 @@ async def analyze_v2(request: V2AnalysisRequest):
         final_response = {
             "initial_analysis": initial_analysis,
             "source_analysis": source_analysis,
-            "fact_checks": fact_check_results
+            "fact_checks": fact_check_results,
+            "contradictions": contradictions
         }
         return final_response
     except Exception as e:
@@ -394,6 +480,10 @@ async def upload_and_analyze_image(file: UploadFile = File(...)):
         # Create a PIL Image object from the uploaded data
         pil_img = Image.open(io.BytesIO(image_data))
 
+
+        vision_task = asyncio.to_thread(get_reverse_image_search_results, image_data)
+
+        
         # --- Use the Vision Model with a specific prompt for images ---
         image_prompt = """
         Analyze this image for potential misinformation. Provide a multi-part analysis. Use '|||' as a separator.
@@ -410,7 +500,10 @@ async def upload_and_analyze_image(file: UploadFile = File(...)):
         """
 
         # Send the prompt and the image to the vision model
-        vision_response = await vision_model.generate_content_async([image_prompt, pil_img], safety_settings=safety_settings)
+        vision_response, visual_forensics = await asyncio.gather(
+            vision_model.generate_content_async([image_prompt, pil_img], safety_settings=safety_settings),
+            vision_task
+        )
         parts = vision_response.text.split('|||')
 
         # Create a placeholder reverse image search URL (since we don't have a URL for uploaded images)
@@ -450,7 +543,8 @@ async def upload_and_analyze_image(file: UploadFile = File(...)):
             "initial_analysis": initial_analysis,
             "source_analysis": source_analysis,
             "fact_checks": fact_check_results,
-            "reverse_image_search_url": reverse_image_search_url,
+            #"reverse_image_search_url": reverse_image_search_url,
+            "visual_forensics": visual_forensics,
             "filename": file.filename
         }
         return final_response
