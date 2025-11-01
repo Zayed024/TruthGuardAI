@@ -1,113 +1,140 @@
 # TruthGuard AI 🛡️
 
-### A Multi-Modal, Tool-Augmented AI Co-Pilot for Verifying Digital Information
+An Agentic Verification Engine to Fix AI's Knowledge Cutoff and Fight Misinformation
 
-TruthGuard AI is a sophisticated browser extension that serves as a real-time "News Context Engine" to analyze news articles, images, and videos. Its core innovation is a **"Tool-Augmented AI"** philosophy, which combines the nuanced understanding of Google's Gemini models with verifiable data from a suite of specialized tools to provide users with unparalleled context and credibility analysis.
-
----
+TruthGuard AI is a sophisticated, multi-modal analysis tool. It began as a browser extension but has evolved into a full-stack, product-ready application. Its core innovation is an Agentic Verification Engine, which fixes the "knowledge cutoff" pitfall of LLMs by forcing them to reason over a "ground truth" context built from live, specialized tools.
 
 ## 🚀 Live Application
 
-Our project is fully deployed and live!
+Our project is a scalable, cloud-native application.
 
-* **Frontend (Web App):** `https://gen-lang-client-0860021451.web.app/`
+**Frontend (Web App):**
+https://gen-lang-client-0860021451.web.app/
 
-* **Browser Extension (Chrome):**
+**Backend (Live API):**
+https://truth-guard-ai-309053470356.asia-south1.run.app/
 
-    **Sideload from `.crx` file:** [`extension.crx`](./extension.crx)
+**Browser Extension (Chrome):**
 
-    <details>
-    <summary>Click here for Chrome installation instructions</summary>
+Sideload from `.crx` file: [extension.crx](./extension.crx)
 
-    1. Download the `TruthGuardAI.crx` file from this repository (or use [`extension.crx`](./extension.crx)).
-    2. Open Chrome and navigate to `chrome://extensions`.
-    3. Enable **Developer mode** using the toggle in the top-right corner.
-    4. Drag and drop the downloaded `.crx` file onto the extensions page.
-    5. When prompted, click **Add extension** to confirm the installation.
+<details>
+<summary>Click here for Chrome installation instructions</summary>
 
-    </details>
+1. Download the `.crx` file from this repository.
+2. Open Chrome and navigate to `chrome://extensions`
+3. Enable **Developer mode** (top-right corner).
+4. Drag and drop the `.crx` file onto the page.
+5. Click **"Add extension"** to confirm.
 
-* **Backend (Live API):**
-    [![Backend API](https://img.shields.io/badge/Backend_API-Live-4285F4?style=for-the-badge&logo=google-cloud)](https://truth-guard-ai-309053470356.asia-south1.run.app/)
-
----
-
+</details>
 
 ## ✨ Core Features
 
-* **Seamless Browser Extension:** A polished and intuitive UI that works directly on any live webpage, providing in-context analysis without friction.
+- **Agentic "Knowledge Cutoff" Fix:**
+  AI agent analyzes text to determine its category (e.g., "Current Event"), then dynamically selects tools (like NewsAPI) to gather live context. This "ground truth" is injected into the prompt, preventing hallucinations about recent events.
 
-* **Multi-Modal Analysis Engine:** A powerful, unified system to analyze:
-    * **Text:** Deconstructs news articles and text-based posts for credibility.
-    * **Images:** A right-click context menu uses **Gemini 1.5 Pro's vision capabilities** to analyze any image on the web.
-    * **Video (Platform-Agnostic):** Analyzes YouTube videos via their transcript API for speed, and videos from other platforms like X (Twitter) by using `yt-dlp` to download audio and a **Hugging Face Whisper model** for transcription.
+- **Agentic "Contradiction Detection":**
+  A secondary AI step checks for contradictions between the article and ground truth data, flagging critical issues.
 
-* **The "Tool-Augmented" Intelligence Layer:** We never just trust the LLM. Our analysis is enriched with verifiable data from:
-    * **Custom-Trained ML Model:** A `scikit-learn` model provides a data-driven **Source Bias & Factuality Rating**.
-    * **Live WHOIS Lookup:** A real-time `whois` query provides the **Domain Age** as a key credibility indicator.
-    * **Programmatic Fact-Checking:** Automatically extracts claims and queries the **Google Fact Check Tools API** for third-party verification.
-    * **Automated Reverse Image Search:** Instantly generates a **Google Lens** link for any analyzed image to verify its origin.
+- **Multi-Modal Verification Engine:**
+  - **Text:** Deconstructs news articles using the agentic pipeline.
+  - **Video (Upgraded):** Transcribes non-YouTube videos (e.g., X, TikTok) using Google Cloud Speech-to-Text API.
+  - **Image (Upgraded):** Enables reverse image search and "Visual Forensics" using Google Cloud Vision API.
 
----
+- **AI-Powered "Source Intelligence Engine":**
+  - **Hybrid ML Model:** Custom scikit-learn model with a grounded AI fallback (Gemini, WHOIS, Wikipedia).
+  - **AI Wikipedia Agent:** Summarizes Wikipedia articles for controversies/bias, not just keywords.
 
 ## 🏗️ Architecture
 
-Our system is a scalable, three-tier architecture **deployed on Google Cloud**.
+A scalable, serverless, and secure cloud-native product.
 
-**(You can create a simple diagram based on the description below and insert the image here)**
+- **Gatekeeper (Monetization):**
+  Google Cloud API Gateway enforces API key authentication and user tiers.
 
+- **Database (User Tiers):**
+  Google Cloud Firestore manages API keys and user tiers ("free", "pro").
 
-1.  **Frontend (Client):** A Chrome Browser Extension and a web app (Firebase Hosting) built with HTML, CSS, and JavaScript.
-2.  **Backend (Server):** A Python **FastAPI** server, deployed on **Google Cloud Run** for automatic scaling.
-3.  **Intelligence Layer (Tools & Models):**
-    * **Google Gemini API (1.5 Pro & Flash):** For primary content analysis and vision.
-    * **Google Fact Check Tools API:** For claim verification.
-    * **Custom ML Model:** A `.joblib` model trained with `scikit-learn` for source analysis.
-    * **Local Transcription Pipeline:** A `yt-dlp` downloader and Hugging Face Whisper model for video analysis.
-    * **Other Tools:** `whois` for domain age, OpenCV for video processing.
+- **Frontend (Client):**
+  Chrome Extension and Firebase-hosted web app (HTML, CSS, JavaScript)
 
----
+- **Backend (Server):**
+  FastAPI (Python, async) on Google Cloud Run for scaling
+
+- **Intelligence Layer (Tools & Models):**
+  - Google Cloud (Gemini Pro/Flash, Speech-to-Text, Vision API)
+  - NewsAPI, Google Fact Check, Wikipedia API, WHOIS
+  - Google Cloud Storage (audio for transcription)
+  - Custom `.joblib` ML model (source analysis)
+
+## 💸 Monetization & Scalability
+
+**Go-to-Market:**
+B2C "Freemium" model. Free users get basic analysis; "Pro" users (API key) unlock the full pipeline.
+
+**Scalability:**
+100% serverless: Cloud Run & API Gateway for compute scaling; Google APIs provide AI/ML scalability.
+
+**Reliability:**
+Async Python backend handles thousands of concurrent users. "Grounded AI Fallback" and "Contradiction Detection" guarantee resilience and trustworthy analysis.
 
 ## 💻 Technology Stack
 
-* **Frontend:** HTML5, CSS3, JavaScript
-* **Backend:** Python, FastAPI
-* **AI & Machine Learning:**
-    * Google Gemini API (1.5 Pro & 1.5 Flash)
-    * Hugging Face Transformers (Whisper)
-    * Scikit-learn, Pandas, Joblib
-    * OpenCV
-* **External APIs & Tools:**
-    * Google Fact Check Tools API
-    * `yt-dlp` & `youtube-transcript-api`
-    * `python-whois`
-* **Deployment:**
-    * Google Cloud Run
-    * Docker
-
----
+- **Frontend:** HTML5, CSS3, JavaScript, Firebase Hosting
+- **Backend:** Python, FastAPI (Async)
+- **AI & ML:** Gemini API (Pro & Flash), Google Cloud Speech-to-Text, Cloud Vision, scikit-learn, pandas, joblib
+- **External APIs:** NewsAPI, Google Fact Check Tools API, youtube-transcript-api, python-whois, wikipedia-api, yt-dlp
+- **Deployment:** Google Cloud Run, Google API Gateway, Google Cloud Storage/Firestore, Docker
 
 ## 🛠️ Local Development Setup
 
-To run this project on a local machine for development purposes:
+### 1. Backend Setup
 
-### **1. Create `requirements.txt`**
-In your terminal (with your virtual environment active), run this command to create a list of all necessary libraries:
-```bash
-pip freeze > requirements.txt
+**Clone the repository:**
+```
+git clone https://github.com/Skullybutcher/google-genai-hackathon
 ```
 
-### **2. Backend Setup**
-* Clone the repository: `git clone https://github.com/Skullybutcher/google-genai-hackathon`
-* Navigate to the project folder.
-* Create a virtual environment: `python -m venv venv`
-* Activate it: `source venv/bin/activate` or `venv\Scripts\activate`
-* Install dependencies: `pip install -r requirements.txt`
-* Create a `.env` file and add your `GEMINI_API_KEY` and `FACT_CHECK_API_KEY`.
-* (Optional) To retrain the source analysis model, run `python train.py`.
-* Run the server: `uvicorn main:app --reload`
+Navigate to the project folder.
 
-### **3. Frontend Setup**
-* Open your browser (Chrome) and navigate to the extensions page (`chrome://extensions`).
-* Enable "Developer mode".
-* Click "Load unpacked" and select the `extension` folder from this repository.
+**Create a virtual environment:**
+```
+python -m venv venv
+```
+
+**Activate it:**
+- On macOS/Linux: `source venv/bin/activate`
+- On Windows: `venv\Scripts\activate`
+
+**Install dependencies:**
+```
+pip install -r requirements.txt
+```
+
+**Authenticate Google Cloud:**
+```
+gcloud auth application-default login
+```
+
+**Create .env file and add your API keys:**
+```
+GEMINI_API_KEY=...
+FACT_CHECK_API_KEY=...
+NEWS_API_KEY=...
+GCS_BUCKET_NAME=...
+```
+
+**Run the server:**
+```
+uvicorn main:app --reload
+```
+
+### 2. Frontend Setup
+
+1. Open Chrome and go to `chrome://extensions`
+2. Enable "Developer mode"
+3. Click "Load unpacked" and select the extension folder.
+4. Important: Open `extension/script.js` and update:
+   - `API_GATEWAY_URL` to `http://127.0.0.1:8000`
+   - `API_KEY` to a valid key from your Firestore database for local testing

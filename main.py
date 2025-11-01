@@ -121,7 +121,7 @@ load_dotenv()
 print(f"GCS_BUCKET_NAME loaded: {os.environ.get('GCS_BUCKET_NAME', 'NOT SET')}")
 
 # --- CORS (added back from original) ---
-origins = ["*"]
+origins = ["*", "https://gen-lang-client-0860021451.web.app"]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
@@ -198,15 +198,17 @@ async def predict_source_reliability(domain: str, source_age: str, wiki_notes: s
         # Fallback: Use Gemini to classify bias and factuality
         try:
             prompt = f"""
-            Analyze the provided ground truth for a source to determine its bias and factuality.
-            
-            --- GROUND TRUTH (FOR SOURCE: {domain}) ---
-            1. Source Domain Age: {source_age}
-            2. Source Wikipedia Summary: {wiki_notes}
+            Determine the political bias and factuality rating of the news source '{domain}' based on the provided context and your knowledge of media bias.
+
+            Possible Bias categories: Left, Center, Right, Left-Leaning, Right-Leaning, Satire, Unknown
+            Possible Factuality: High, Mixed, Low, Unknown
+
+            --- CONTEXT ---
+            Domain Age: {source_age}
+            Wikipedia Notes: {wiki_notes}
             --- END CONTEXT ---
-            
-            Based *only* on the context above, classify the source.
-            Return as: Bias|||Factuality
+
+            Return only: Bias|||Factuality
             """
             response = await text_model.generate_content_async(prompt, safety_settings=safety_settings)
             parts = response.text.strip().split('|||')
@@ -232,15 +234,17 @@ async def predict_source_reliability(domain: str, source_age: str, wiki_notes: s
         # Fallback: Use Gemini
         try:
             prompt = f"""
-        Analyze the provided ground truth for a source to determine its bias and factuality.
-        
-        --- GROUND TRUTH (FOR SOURCE: {domain}) ---
-        1. Source Domain Age: {source_age}
-        2. Source Wikipedia Summary: {wiki_notes}
+        Determine the political bias and factuality rating of the news source '{domain}' based on the provided context and your knowledge of media bias.
+
+        Possible Bias categories: Left, Center, Right, Left-Leaning, Right-Leaning, Satire, Unknown
+        Possible Factuality: High, Mixed, Low, Unknown
+
+        --- CONTEXT ---
+        Domain Age: {source_age}
+        Wikipedia Notes: {wiki_notes}
         --- END CONTEXT ---
-        
-        Based *only* on the context above, classify the source.
-        Return as: Bias|||Factuality
+
+        Return only: Bias|||Factuality
         """
             response = await text_model.generate_content_async(prompt, safety_settings=safety_settings)
             parts = response.text.strip().split('|||')

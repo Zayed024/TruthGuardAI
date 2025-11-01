@@ -10,6 +10,7 @@ import { Badge } from '../ui/badge';
 import { Separator } from '../ui/separator';
 import { Upload, Link, FileText, AlertTriangle, CheckCircle, XCircle, ExternalLink, Youtube } from 'lucide-react';
 import { useAnalysisHistory } from '../../utils/auth/analysis-hooks';
+import { apiService } from '../../utils/api';
 import { toast } from 'sonner';
 
 interface AnalysisResult {
@@ -47,86 +48,45 @@ export function AnalysisHub() {
     setIsAnalyzing(true);
     setResult(null); // Clear previous results
 
-    // The base URL for your FastAPI backend
-const API_BASE_URL = import.meta.env.DEV ? 'http://localhost:8000' : 'https://truthguardai-gateway-3xz6gfx0.an.gateway.dev';
-    let endpoint = '';
-    let body = {};
-
     try {
+      let response;
+
       if (activeTab === 'youtube') {
-        endpoint = `${API_BASE_URL}/v2/analyze_video`;
-        body = { url: analysisInput };
+        response = await apiService.analyzeVideo(analysisInput);
       } else if (activeTab === 'url' || activeTab === 'text') {
-        endpoint = `${API_BASE_URL}/v2/analyze`;
-        body = {
-          // For URL analysis, we need to get the text first.
-          // In a real app, you'd scrape this. For now, we'll send the URL as text.
-          text: analysisInput,
-          url: activeTab === 'url' ? analysisInput : 'http://example.com' // Use a placeholder for text analysis
-        };
+        response = await apiService.analyzeText(analysisInput, activeTab === 'url' ? analysisInput : undefined);
       } else if (activeTab === 'image' && uploadedFile) {
-        // Use the new upload endpoint for direct image analysis
-        endpoint = `${API_BASE_URL}/v2/upload_and_analyze_image`;
-
-        // Create FormData to send the file
-        const formData = new FormData();
-        formData.append('file', uploadedFile);
-
-        // Use FormData instead of JSON for file upload
-        const response = await fetch(endpoint, {
-          method: 'POST',
-          headers: { 'x-api-key': 'fYL8x7T3EQ2Oovm7mZyU' },
-          body: formData,
-        });
-
-        if (!response.ok) {
-          const errorData = await response.json();
-          throw new Error(errorData.detail || 'Image analysis failed.');
-        }
-
-        const data: AnalysisResult = await response.json();
-        setResult(data);
-
-        // Save the analysis to history
-        await saveAnalysis({
-          type: 'image',
-          title: `Image Analysis: ${uploadedFile.name}`,
-          content: `Uploaded image: ${uploadedFile.name}`,
-          credibilityScore: data.initial_analysis.credibility_score,
-          status: data.initial_analysis.credibility_score > 70 ? 'verified' : data.initial_analysis.credibility_score > 40 ? 'questionable' : 'debunked',
-          date: new Date().toISOString().split('T')[0],
-          timeSpent: 'N/A'
-        });
-        toast.success('Image analysis complete and saved to history.');
-
+        response = await apiService.uploadAndAnalyzeImage(uploadedFile);
       } else {
         throw new Error("Invalid analysis type or missing input.");
       }
 
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': 'fYL8x7T3EQ2Oovm7mZyU' },
-        body: JSON.stringify(body),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Analysis failed in the backend.');
+      if (response.error) {
+        throw new Error(response.error);
       }
 
-      const data: AnalysisResult = await response.json();
+      const data = response.data as AnalysisResult;
       setResult(data);
 
-      // Save the real analysis to history
+      // Save the analysis to history
+      const analysisType = activeTab as 'url' | 'text' | 'image' | 'youtube';
+      const title = activeTab === 'image' && uploadedFile
+        ? `Image Analysis: ${uploadedFile.name}`
+        : `Analysis: ${analysisInput.substring(0, 50)}...`;
+      const content = activeTab === 'image' && uploadedFile
+        ? `Uploaded image: ${uploadedFile.name}`
+        : analysisInput;
+
       await saveAnalysis({
-        type: activeTab as 'url' | 'text' | 'image' | 'youtube',
-        title: `Analysis: ${analysisInput.substring(0, 50)}...`,
-        content: analysisInput,
+        type: analysisType,
+        title,
+        content,
         credibilityScore: data.initial_analysis.credibility_score,
         status: data.initial_analysis.credibility_score > 70 ? 'verified' : data.initial_analysis.credibility_score > 40 ? 'questionable' : 'debunked',
         date: new Date().toISOString().split('T')[0],
         timeSpent: 'N/A'
       });
+
       toast.success('Analysis complete and saved to history.');
 
     } catch (error) {

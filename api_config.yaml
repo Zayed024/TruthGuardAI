@@ -4,11 +4,14 @@ info:
   description: Secure API for misinformation detection and analysis
   version: 1.0.0
 
-
-host: truth-guard-ai-309053470356.asia-south1.run.app
-basePath: /v2
+host: truthguardai-gateway-3xz6gfx0.an.gateway.dev
+basePath: /
 schemes:
   - https
+
+x-google-endpoints:
+  - name: "truthguardai-gateway-3xz6gfx0.an.gateway.dev"
+    allowCors: true
 
 # --- Security Definitions ---
 # securityDefinitions:
@@ -166,8 +169,18 @@ paths:
         address: https://truth-guard-ai-309053470356.asia-south1.run.app
         path_translation: APPEND_PATH_TO_ADDRESS
         deadline: 200
+    options:
+      summary: CORS preflight for health
+      operationId: corsHealth
+      responses:
+        200:
+          description: CORS allowed
+      x-google-backend:
+        address: https://truth-guard-ai-309053470356.asia-south1.run.app
+        path_translation: APPEND_PATH_TO_ADDRESS
+        deadline: 200
 
-  /analyze:
+  /v2/analyze:
     post:
       summary: Analyze a text for misinformation
       operationId: analyzeText
@@ -194,8 +207,18 @@ paths:
         address: https://truth-guard-ai-309053470356.asia-south1.run.app
         path_translation: APPEND_PATH_TO_ADDRESS
         deadline: 200
+    options:
+      summary: CORS preflight for analyze
+      operationId: corsAnalyze
+      responses:
+        200:
+          description: CORS allowed
+      x-google-backend:
+        address: https://truth-guard-ai-309053470356.asia-south1.run.app
+        path_translation: APPEND_PATH_TO_ADDRESS
+        deadline: 200
 
-  /upload_and_analyze_image:
+  /v2/upload_and_analyze_image:
     post:
       summary: Upload and analyze an image for misinformation
       operationId: uploadAndAnalyzeImage
@@ -224,8 +247,18 @@ paths:
         address: https://truth-guard-ai-309053470356.asia-south1.run.app
         path_translation: APPEND_PATH_TO_ADDRESS
         deadline: 200
+    options:
+      summary: CORS preflight for upload_and_analyze_image
+      operationId: corsUploadAnalyzeImage
+      responses:
+        200:
+          description: CORS allowed
+      x-google-backend:
+        address: https://truth-guard-ai-309053470356.asia-south1.run.app
+        path_translation: APPEND_PATH_TO_ADDRESS
+        deadline: 200
 
-  /analyze_video:
+  /v2/analyze_video:
     post:
       summary: Analyze a video URL for misinformation
       operationId: analyzeVideo
@@ -252,8 +285,18 @@ paths:
         address: https://truth-guard-ai-309053470356.asia-south1.run.app
         path_translation: APPEND_PATH_TO_ADDRESS
         deadline: 240
+    options:
+      summary: CORS preflight for analyze_video
+      operationId: corsAnalyzeVideo
+      responses:
+        200:
+          description: CORS allowed
+      x-google-backend:
+        address: https://truth-guard-ai-309053470356.asia-south1.run.app
+        path_translation: APPEND_PATH_TO_ADDRESS
+        deadline: 200
 
-  /analyze_image:
+  /v2/analyze_image:
     post:
       summary: Analyze an image URL for misinformation
       operationId: analyzeImage
@@ -298,3 +341,13 @@ paths:
         address: https://truth-guard-ai-309053470356.asia-south1.run.app
         path_translation: APPEND_PATH_TO_ADDRESS
         deadline: 240
+    options:
+      summary: CORS preflight for analyze_image
+      operationId: corsAnalyzeImage
+      responses:
+        200:
+          description: CORS allowed
+      x-google-backend:
+        address: https://truth-guard-ai-309053470356.asia-south1.run.app
+        path_translation: APPEND_PATH_TO_ADDRESS
+        deadline: 200

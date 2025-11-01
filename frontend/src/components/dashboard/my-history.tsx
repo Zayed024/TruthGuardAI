@@ -6,6 +6,7 @@ import { Badge } from '../ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Search, Eye, Calendar, Link, FileText, Image, Filter } from 'lucide-react';
 import { useAnalysisHistory } from '../../utils/auth/analysis-hooks';
+import { apiService } from '../../utils/api';
 import { toast } from 'sonner';
 
 interface AnalysisHistory {
@@ -97,9 +98,37 @@ export function MyHistory() {
       }
     });
 
-  const handleViewFullReport = (item: AnalysisHistory) => {
-    // This would typically navigate to the full analysis or open a modal
-    console.log('View full report for:', item.id);
+  const handleViewFullReport = async (item: AnalysisHistory) => {
+    try {
+      // Re-run the analysis to get full details
+      let response;
+      if (item.type === 'youtube') {
+        response = await apiService.analyzeVideo(item.content || '');
+      } else if (item.type === 'url' || item.type === 'text') {
+        response = await apiService.analyzeText(item.content || '', item.type === 'url' ? item.content : undefined);
+      } else if (item.type === 'image') {
+        // For images, we can't re-analyze without the file, so show a message
+        toast.info('Full image analysis requires re-uploading the image file');
+        return;
+      } else {
+        throw new Error("Unknown analysis type");
+      }
+
+      if (response.error) {
+        throw new Error(response.error);
+      }
+
+      // Store the full result in localStorage for the modal to access
+      const fullResult = response.data;
+      localStorage.setItem('fullAnalysisResult', JSON.stringify(fullResult));
+
+      // Navigate to analysis hub with the result
+      window.location.href = '/dashboard/analysis-hub?view=full';
+
+    } catch (error) {
+      console.error('Failed to load full report:', error);
+      toast.error('Failed to load full analysis report');
+    }
   };
 
   return (

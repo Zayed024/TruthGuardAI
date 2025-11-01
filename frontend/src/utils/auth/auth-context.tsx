@@ -81,12 +81,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
     try {
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
 
-      // Update the user's display name if provided
-      if (name && userCredential.user) {
-        // Note: Firebase doesn't support updating display name directly after signup
-        // You might want to store additional user data in Firestore
-        console.log('User created with name:', name);
-      }
+      // Store additional user data in Firestore
+      const { db } = await import('../firebase');
+      const { doc, setDoc } = await import('firebase/firestore');
+
+      await setDoc(doc(db, 'users', userCredential.user.uid), {
+        email: email,
+        name: name || '',
+        isAdmin: false,
+        createdAt: new Date(),
+        analysesCount: 0,
+        lastActive: new Date(),
+      });
 
     } catch (error: any) {
       console.error('Signup error:', error);
