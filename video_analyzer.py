@@ -5,10 +5,8 @@ from youtube_transcript_api import YouTubeTranscriptApi, _errors
 import yt_dlp
 import io
 import tempfile
-import torch
 import httpx
 import random
-from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor, pipeline
 from fastapi import HTTPException
 import cv2
 import base64
@@ -18,6 +16,10 @@ from dotenv import load_dotenv
 from PIL import Image
 import google.generativeai as genai
 import aiohttp  # <-- Add this line near your other imports
+
+# --- NEW: Google Cloud Imports ---
+from google.cloud import speech
+from google.cloud import storage
 
 # Multiple proxy sources for fallback
 PROXY_SOURCES = [
@@ -175,36 +177,19 @@ async def get_proxy_for_request():
     
 # }
 
-# --- Configuration for Speech-to-Text Model ---
+# --- NEW: Initialize Google Cloud Clients ---
+speech_client = speech.SpeechClient()
+storage_client = storage.Client()
+try:
+    GCS_BUCKET_NAME = os.environ["GCS_BUCKET_NAME"]
+except KeyError:
+    print("CRITICAL: GCS_BUCKET_NAME environment variable not set.")
+    GCS_BUCKET_NAME = None
 
-#The "small" model is a good balance of speed and accuracy for this use case.
-MODEL_NAME = "openai/whisper-small"
-device = "cuda:0" if torch.cuda.is_available() else "cpu"
-dtype = torch.float16 if torch.cuda.is_available() else torch.float32
-
-
-model = AutoModelForSpeechSeq2Seq.from_pretrained(
-    MODEL_NAME, torch_dtype=dtype, low_cpu_mem_usage=True, use_safetensors=True
-)
-model.to(device)
-
-
-
-processor = AutoProcessor.from_pretrained(MODEL_NAME)
-
-pipe = pipeline(
-    "automatic-speech-recognition",
-    model=model,
-    tokenizer=processor.tokenizer,
-    feature_extractor=processor.feature_extractor,
-    max_new_tokens=128,
-    torch_dtype=dtype,
-    device=device,
-)
 load_dotenv()
 try:
     genai.configure(api_key=os.environ["GEMINI_API_KEY"])
-    
+
 except KeyError as e:
     print(f"Error: Environment variable {e} not found.")
     exit()
@@ -292,47 +277,85 @@ async def get_transcript_from_youtube(video_url: str, proxies=None) -> str:
 
 def get_transcript_from_other_platforms(video_url: str, proxy: str | None = None) -> str:
     """
-    Downloads audio from any yt-dlp supported URL and transcribes it.
+    Downloads audio, uploads to GCS, transcribes with Google Speech-to-Text.
     """
-    # Define a specific output template for our audio file in the temp directory
+    if not GCS_BUCKET_NAME:
+        raise HTTPException(status_code=500, detail="Server is not configured for GCS.")
+
+    print(f"Non-YouTube URL detected ({urlparse(video_url).hostname}), using Google Cloud Speech-to-Text...")
     output_template = os.path.join(tempfile.gettempdir(), '%(id)s.%(ext)s')
 
     ydl_opts = {
         'format': 'bestaudio/best',
         'outtmpl': output_template,
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '192',
-        }],
-        'quiet': True, # Suppress console output from yt-dlp
+        'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3'}],
+        'quiet': True,
     }
 
-    # --- Add this ---
-    if proxy:
-        ydl_opts['proxy'] = proxy
-        print(f"Using proxy for audio download: {proxy}")
-    # --- End Add ---
-
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info_dict = ydl.extract_info(video_url, download=True)
-
-        base_filename = os.path.splitext(ydl.prepare_filename(info_dict))[0]
-        audio_file_path = base_filename + '.mp3'
+    audio_file_path = None
+    gcs_blob_name = None
 
     try:
-        if not os.path.exists(audio_file_path):
-             raise FileNotFoundError(f"FFmpeg failed to create the audio file: {audio_file_path}")
+        # --- 1. Download Audio (Same as before) ---
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info_dict = ydl.extract_info(video_url, download=True)
+            base_filename = os.path.splitext(ydl.prepare_filename(info_dict))[0]
+            audio_file_path = base_filename + '.mp3'
+            gcs_blob_name = os.path.basename(audio_file_path)
 
-        #segments, _ = whisper_model.transcribe(audio_file_path, beam_size=5)
-        result = pipe(audio_file_path, return_timestamps=True)
-        transcript_text = " ".join([chunk['text'] for chunk in result['chunks']])
+        if not os.path.exists(audio_file_path):
+             raise FileNotFoundError(f"FFmpeg failed to create audio file: {audio_file_path}")
+
+        # --- 2. Upload to Google Cloud Storage ---
+        print(f"Uploading {audio_file_path} to GCS...")
+        bucket = storage_client.bucket(GCS_BUCKET_NAME)
+        blob = bucket.blob(gcs_blob_name)
+        blob.upload_from_filename(audio_file_path)
+        gcs_uri = f"gs://{GCS_BUCKET_NAME}/{gcs_blob_name}"
+
+        # --- 3. Transcribe using Google Cloud Speech-to-Text ---
+        print(f"Transcribing {gcs_uri}...")
+        audio = speech.RecognitionAudio(uri=gcs_uri)
+        config = speech.RecognitionConfig(
+            encoding=speech.RecognitionConfig.AudioEncoding.MP3, # We know it's MP3
+            sample_rate_hertz=16000, # A common rate for MP3
+            language_code="en-US",
+            enable_automatic_punctuation=True
+        )
+
+        # Use long_running_recognize for files > 1 minute
+        operation = speech_client.long_running_recognize(config=config, audio=audio)
+        response = operation.result(timeout=300) # 5 minute timeout
+
+        transcript_parts = [result.alternatives[0].transcript for result in response.results]
+        transcript_text = " ".join(transcript_parts)
+
+        if not transcript_text:
+            print("No transcript returned from Google Cloud Speech.")
+            return "No transcript could be generated for this video."
+
         return transcript_text
 
+    except Exception as e:
+        print(f"Google Cloud Speech pipeline failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Transcription failed: {e}")
+
     finally:
-        # Clean up the downloaded audio file
-        if os.path.exists(audio_file_path):
+        # --- 4. Cleanup ---
+        if gcs_blob_name:
+            try:
+                # Delete from GCS
+                blob = bucket.blob(gcs_blob_name)
+                if blob.exists():
+                    blob.delete()
+                    print(f"Deleted {gcs_blob_name} from GCS.")
+            except Exception as e:
+                print(f"Failed to delete from GCS: {e}")
+
+        if audio_file_path and os.path.exists(audio_file_path):
+            # Delete local file
             os.remove(audio_file_path)
+            print(f"Deleted local file: {audio_file_path}")
 
 def download_video(url, proxy: str | None = None):
     output_template = os.path.join(tempfile.gettempdir(), '%(id)s.%(ext)s')

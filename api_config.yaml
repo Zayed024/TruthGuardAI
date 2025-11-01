@@ -11,15 +11,15 @@ schemes:
   - https
 
 # --- Security Definitions ---
-securityDefinitions:
-  ApiKeyAuth:
-    type: apiKey
-    name: x-api-key           # Header clients must send, e.g., x-api-key: YOUR_KEY
-    in: header
+# securityDefinitions:
+#   ApiKeyAuth:
+#     type: apiKey
+#     name: x-api-key           # Header clients must send, e.g., x-api-key: YOUR_KEY
+#     in: header
 
-# --- Apply security globally ---
-security:
-  - ApiKeyAuth: []
+# # --- Apply security globally ---
+# security:
+#   - ApiKeyAuth: []
 
 # --- Definitions ---
 definitions:
@@ -165,6 +165,7 @@ paths:
       x-google-backend:
         address: https://truth-guard-ai-309053470356.asia-south1.run.app
         path_translation: APPEND_PATH_TO_ADDRESS
+        deadline: 200
 
   /analyze:
     post:
@@ -192,6 +193,7 @@ paths:
       x-google-backend:
         address: https://truth-guard-ai-309053470356.asia-south1.run.app
         path_translation: APPEND_PATH_TO_ADDRESS
+        deadline: 200
 
   /upload_and_analyze_image:
     post:
@@ -221,6 +223,7 @@ paths:
       x-google-backend:
         address: https://truth-guard-ai-309053470356.asia-south1.run.app
         path_translation: APPEND_PATH_TO_ADDRESS
+        deadline: 200
 
   /analyze_video:
     post:
@@ -248,6 +251,7 @@ paths:
       x-google-backend:
         address: https://truth-guard-ai-309053470356.asia-south1.run.app
         path_translation: APPEND_PATH_TO_ADDRESS
+        deadline: 240
 
   /analyze_image:
     post:
@@ -293,3 +297,4 @@ paths:
       x-google-backend:
         address: https://truth-guard-ai-309053470356.asia-south1.run.app
         path_translation: APPEND_PATH_TO_ADDRESS
+        deadline: 240

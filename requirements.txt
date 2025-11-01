@@ -5,8 +5,6 @@ google-cloud-firestore
 youtube-transcript-api
 yt-dlp
 pydub
-transformers
-torch
 opencv-python
 scikit-learn
 aiohttp
@@ -19,5 +17,7 @@ python-whois
 
 Wikipedia-API
 newsapi-python
-google-cloud-vision 
+google-cloud-vision
 firebase_admin
+google-cloud-speech
+google-cloud-storage
