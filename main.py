@@ -476,7 +476,6 @@ async def run_full_analysis(text: str, url: str):
     score_match = re.search(r'\d+', parts[0])
     score = int(score_match.group(0)) if score_match else 0
     explanation_clean = parts[1].split(':', 1)[-1].strip()
-
     contradiction_text = await find_contradictions(text, final_context_str, explanation_clean)
 
     initial_analysis = {"credibility_score": score, "explanation": explanation_clean}
@@ -549,7 +548,7 @@ async def upload_and_analyze_image(file: UploadFile = File(...), api_tier: str =
 
         vision_task = asyncio.to_thread(get_reverse_image_search_results, image_data)
 
-        
+
         # --- Use the Vision Model with a specific prompt for images ---
         image_prompt = """
         Analyze this image for potential misinformation. Provide a multi-part analysis. Use '|||' as a separator.
@@ -591,7 +590,7 @@ async def upload_and_analyze_image(file: UploadFile = File(...), api_tier: str =
             bias_clean = "Center"
         elif "satire" in bias_raw:
             bias_clean = "Satire"
-        
+
         factuality_clean = parts[3].split(':', 1)[-1].strip()
         claims_raw = parts[4].split('\n')
         claims_to_check = [claim.strip() for claim in claims_raw if len(claim.strip().split()) > 1 and "PART 5" not in claim]
@@ -626,38 +625,24 @@ async def analyze_video_v2(request: V2VideoAnalysisRequest, api_tier: str = Depe
     download_url = None
     try:
         # --- Step 1: Get transcript using the appropriate method ---
-        # analyze_video_url_async will raise exceptions on failure
-        transcript_text, download_url = await analyze_video_url(request.url)
+        # analyze_video_url will raise exceptions on failure
+        transcript_text, video_path = await analyze_video_url(request.url)
 
         # --- Step 2: Run text analysis based on the transcript ---
         initial_analysis_task = run_full_analysis(transcript_text, request.url)
 
-        # --- Step 3: Concurrently download video (if needed) and run text analysis ---
-        # Only download if we got a transcript and URL
-        video_download_task = None
-        if transcript_text and download_url:
-             # Run synchronous download_video in a thread
-             video_download_task = asyncio.to_thread(download_video, download_url)
-
         # Await text analysis results
-        initial_analysis, source_analysis, claims_to_check = await initial_analysis_task
+        initial_analysis, source_analysis, claims_to_check, contradictions = await initial_analysis_task
 
+        # --- Step 3: Get visual context if video was downloaded ---
         visual_context = []
-        if video_download_task:
+        if video_path:
             try:
-                video_path = await video_download_task # Get the downloaded path
-                if video_path:
-                    # Run synchronous get_visual_context in a thread
-                    visual_context_task = asyncio.to_thread(get_visual_context, video_path)
-                    visual_context = await visual_context_task
-                else:
-                    print("Video download returned None path.")
-            except HTTPException as e:
-                # Catch specific download errors (like the bot detection)
-                print(f"Video download failed during analysis: {e.detail}")
-                # Optionally add this info to the response instead of failing the whole request
+                # Run synchronous get_visual_context in a thread
+                visual_context_task = asyncio.to_thread(get_visual_context, video_path)
+                visual_context = await visual_context_task
             except Exception as e:
-                 print(f"Error during video download/visual context: {e}")
+                print(f"Error during visual context extraction: {e}")
         # Run fact-checking
         fact_check_results = []
         if claims_to_check:
@@ -669,6 +654,7 @@ async def analyze_video_v2(request: V2VideoAnalysisRequest, api_tier: str = Depe
             "initial_analysis": initial_analysis,
             "source_analysis": source_analysis,
             "fact_checks": fact_check_results,
+            "contradictions": contradictions,
             "visual_context": visual_context
         }
         return final_response
