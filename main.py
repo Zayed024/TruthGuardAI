@@ -51,7 +51,7 @@ async def get_api_tier(api_key: str = Security(API_KEY_HEADER)):
 
     try:
         # Fetch the key document from Firestore
-        key_doc_ref = db.collection('api_keys').document(api_key)
+        key_doc_ref = db.collection('apikeys').document(api_key)
         key_doc = await key_doc_ref.get()
 
         if not key_doc.exists:
