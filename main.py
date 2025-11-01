@@ -7,6 +7,9 @@ from fastapi.security import APIKeyHeader
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
+import firebase_admin
+from firebase_admin import credentials, firestore
+
 import json
 import re
 import tldextract
@@ -23,7 +26,9 @@ from google.cloud import vision
 from newsapi import NewsApiClient
 from PIL import Image 
 from video_analyzer import update_working_proxies,analyze_video_url,download_video,get_visual_context
-
+import firebase_admin
+from firebase_admin import credentials, firestore
+firebase_admin.initialize_app()
 db = firestore.AsyncClient()
 
 API_KEY_HEADER = APIKeyHeader(name="x-api-key")
