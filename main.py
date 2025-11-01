@@ -28,6 +28,7 @@ from PIL import Image
 from video_analyzer import update_working_proxies,analyze_video_url,download_video,get_visual_context
 import firebase_admin
 from firebase_admin import credentials, firestore
+
 firebase_admin.initialize_app()
 db = firestore.AsyncClient()
 
