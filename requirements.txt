@@ -5,6 +5,8 @@ google-cloud-firestore
 youtube-transcript-api
 yt-dlp
 pydub
+transformers
+torch
 opencv-python
 scikit-learn
 aiohttp

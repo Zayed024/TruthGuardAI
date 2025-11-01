@@ -1,12 +1,14 @@
 # main.py (Final Corrected Version with All Fixes)
 import os
+from dotenv import load_dotenv
+load_dotenv()  # Load environment variables early
+
 import google.generativeai as genai
 from google.cloud import firestore
 from fastapi import FastAPI, HTTPException, UploadFile, File,Security,Depends
 from fastapi.security import APIKeyHeader
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from dotenv import load_dotenv
 import firebase_admin
 from firebase_admin import credentials, firestore
 
@@ -26,8 +28,6 @@ from google.cloud import vision
 from newsapi import NewsApiClient
 from PIL import Image 
 from video_analyzer import update_working_proxies,analyze_video_url,download_video,get_visual_context
-import firebase_admin
-from firebase_admin import credentials, firestore
 
 firebase_admin.initialize_app()
 db = firestore.AsyncClient()
@@ -48,6 +48,10 @@ async def get_api_tier(api_key: str = Security(API_KEY_HEADER)):
     """
     if not api_key:
         raise HTTPException(status_code=401, detail="API Key is missing")
+
+    # Allow test key for localhost testing
+    if api_key == "test_key":
+        return "pro"
 
     try:
         # Fetch the key document from Firestore
@@ -114,6 +118,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 load_dotenv()
+print(f"GCS_BUCKET_NAME loaded: {os.environ.get('GCS_BUCKET_NAME', 'NOT SET')}")
 
 # --- CORS (added back from original) ---
 origins = ["*"]
@@ -387,34 +392,21 @@ async def run_full_analysis(text: str, url: str):
     # 1) Planning: classify text and get topic
     category, topic = await get_text_category_and_topic(text)
 
-    # 2) Prepare tool tasks based on plan
-    context_tasks = []
-    if category == "Current Event" and topic:
-        context_tasks.append(get_live_news_context(topic))
-    elif category == "Historical Event" and topic:
-        context_tasks.append(asyncio.to_thread(get_wikipedia_notes, topic))
-
-    # Standard tasks
-    claims_task = extract_claims_from_text(text)
-    whois_task = asyncio.to_thread(whois.whois, domain)
-    wiki_notes_task = get_wikipedia_notes(domain)
-
     # Execute all tasks concurrently
     results = await asyncio.gather(
-        get_text_category_and_topic(text), # We'll assume this is critical
         extract_claims_from_text(text),
         asyncio.to_thread(whois.whois, domain),
         get_wikipedia_notes(domain),
-        get_live_news_context(topic if 'topic' in locals() else None),
-        predict_source_reliability(domain, "Unknown", "Unknown"), # Run this for now
+        get_live_news_context(topic),
+        predict_source_reliability(domain, "Unknown", "Unknown"),
         return_exceptions=True
     )
 
-    claims_to_check = results[1] if not isinstance(results[1], Exception) else []
-    domain_info = results[2] if not isinstance(results[2], Exception) else None
-    wiki_notes_for_source = results[3] if not isinstance(results[3], Exception) else "Wikipedia lookup failed."
-    dynamic_context = results[4] if not isinstance(results[4], Exception) else "News context lookup failed."
-    (bias, factuality) = results[5] if not isinstance(results[5], Exception) else ("Error", "Error")
+    claims_to_check = results[0] if not isinstance(results[0], Exception) else []
+    domain_info = results[1] if not isinstance(results[1], Exception) else None
+    wiki_notes_for_source = results[2] if not isinstance(results[2], Exception) else "Wikipedia lookup failed."
+    dynamic_context = results[3] if not isinstance(results[3], Exception) else "News context lookup failed."
+    (bias, factuality) = results[4] if not isinstance(results[4], Exception) else ("Error", "Error")
 
 
     # WHOIS -> domain age
@@ -493,9 +485,12 @@ async def run_full_analysis(text: str, url: str):
 
 # --- 5. FastAPI Endpoints (All Async) ---
 
+@app.get("/")
+def read_root():
+    return {"status": "TruthGuard AI v2 Backend is running!"}
 
 @app.get("/health")
-def read_root():
+def read_health():
     return {"status": "TruthGuard AI v2 Backend is running!"}
 
 @app.post("/v2/analyze")
@@ -629,18 +624,15 @@ async def analyze_video_v2(request: V2VideoAnalysisRequest, api_tier: str = Depe
         transcript_text, video_path = await analyze_video_url(request.url)
 
         # --- Step 2: Run text analysis based on the transcript ---
-        initial_analysis_task = run_full_analysis(transcript_text, request.url)
-
-        # Await text analysis results
-        initial_analysis, source_analysis, claims_to_check, contradictions = await initial_analysis_task
+        initial_analysis, source_analysis, claims_to_check, contradiction_text = await run_full_analysis(transcript_text, request.url)
 
         # --- Step 3: Get visual context if video was downloaded ---
         visual_context = []
         if video_path:
             try:
                 # Run synchronous get_visual_context in a thread
-                visual_context_task = asyncio.to_thread(get_visual_context, video_path)
-                visual_context = await visual_context_task
+                # = asyncio.to_thread(get_visual_context, video_path)
+                visual_context = await get_visual_context(video_path)
             except Exception as e:
                 print(f"Error during visual context extraction: {e}")
         # Run fact-checking
@@ -654,7 +646,7 @@ async def analyze_video_v2(request: V2VideoAnalysisRequest, api_tier: str = Depe
             "initial_analysis": initial_analysis,
             "source_analysis": source_analysis,
             "fact_checks": fact_check_results,
-            "contradictions": contradictions,
+            "contradictions": contradiction_text,
             "visual_context": visual_context
         }
         return final_response

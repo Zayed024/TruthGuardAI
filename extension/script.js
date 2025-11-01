@@ -1,7 +1,8 @@
 // script.js (Manifest V3)
 // In a real product, the user would log in and you'd store this securely.
 const API_KEY = "fYL8x7T3EQ2Oovm7mZyU";
-const API_GATEWAY_URL = "https://truthguardai-gateway-3xz6gfx0.an.gateway.dev"
+// Use localhost for local development, production gateway for deployed version
+const API_GATEWAY_URL = "http://localhost:8000"
 
 
 document.addEventListener('DOMContentLoaded', () => {

@@ -48,7 +48,7 @@ export function AnalysisHub() {
     setResult(null); // Clear previous results
 
     // The base URL for your FastAPI backend
-const API_BASE_URL = 'https://truth-guard-ai-309053470356.asia-south1.run.app';
+const API_BASE_URL = import.meta.env.DEV ? 'http://localhost:8000' : 'https://truthguardai-gateway-3xz6gfx0.an.gateway.dev';
     let endpoint = '';
     let body = {};
 
@@ -75,6 +75,7 @@ const API_BASE_URL = 'https://truth-guard-ai-309053470356.asia-south1.run.app';
         // Use FormData instead of JSON for file upload
         const response = await fetch(endpoint, {
           method: 'POST',
+          headers: { 'x-api-key': 'fYL8x7T3EQ2Oovm7mZyU' },
           body: formData,
         });
 
@@ -104,7 +105,7 @@ const API_BASE_URL = 'https://truth-guard-ai-309053470356.asia-south1.run.app';
 
       const response = await fetch(endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-api-key': 'fYL8x7T3EQ2Oovm7mZyU' },
         body: JSON.stringify(body),
       });
 
@@ -176,7 +177,7 @@ const API_BASE_URL = 'https://truth-guard-ai-309053470356.asia-south1.run.app';
       <div className="text-center space-y-2">
         <h1 className="text-3xl">Analysis Hub</h1>
         <p className="text-muted-foreground">
-          Analyze URLs, text content, YouTube videos, or images to verify their credibility and authenticity
+          Analyze URLs, text content, videos, or images to verify their credibility and authenticity
         </p>
       </div>
 
@@ -249,7 +250,7 @@ const API_BASE_URL = 'https://truth-guard-ai-309053470356.asia-south1.run.app';
 
             <TabsContent value="youtube" className="space-y-4 mt-6">
               <div className="space-y-2">
-                <Label htmlFor="youtube-input">Enter YouTube video URL</Label>
+                <Label htmlFor="youtube-input">Enter video URL</Label>
                 <Input
                   id="youtube-input"
                   placeholder="https://www.youtube.com/watch?v=..."
@@ -262,7 +263,7 @@ const API_BASE_URL = 'https://truth-guard-ai-309053470356.asia-south1.run.app';
                 disabled={!analysisInput || isAnalyzing}
                 className="w-full"
               >
-                {isAnalyzing ? 'Analyzing...' : 'Analyze YouTube Video'}
+                {isAnalyzing ? 'Analyzing...' : 'Analyze  Video'}
               </Button>
             </TabsContent>
 

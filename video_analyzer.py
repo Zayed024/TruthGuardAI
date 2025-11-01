@@ -15,7 +15,7 @@ import httpx
 from dotenv import load_dotenv
 from PIL import Image
 import google.generativeai as genai
-import aiohttp  # <-- Add this line near your other imports
+import aiohttp
 
 # --- NEW: Google Cloud Imports ---
 from google.cloud import speech
@@ -142,7 +142,7 @@ async def update_working_proxies():
     # Validate in batches of 30 to avoid bans/errors
     for i in range(0, len(proxy_list), batch_size):
         batch = proxy_list[i:i + batch_size]
-        print(f"Validating batch {i//batch_size + 1} ({len(batch)} proxies)...")
+       # print(f"Validating batch {i//batch_size + 1} ({len(batch)} proxies)...")
         validation_tasks = [validate_proxy_async(proxy) for proxy in batch]
         results = await asyncio.gather(*validation_tasks)
 
@@ -213,37 +213,39 @@ async def get_visual_context(video_path: str, num_keyframes: int = 3):
     if not video.isOpened():
         return []
 
-    # Simple keyframe extraction: grab frames at 25%, 50%, and 75% of the video
     total_frames = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
     positions = [0.25, 0.50, 0.75]
+    frames = []
     tasks = []
+
     for pos in positions:
         frame_id = int(total_frames * pos)
         video.set(cv2.CAP_PROP_POS_FRAMES, frame_id)
         ret, frame = video.read()
         if ret:
-            # Encode the frame as a JPEG image in memory
             _, buffer = cv2.imencode('.jpg', frame)
             pil_img = Image.open(io.BytesIO(buffer))
+            prompt = (
+                "Analyze this image from a video. Describe the key visual elements. "
+                "Is this image related to a known news event? If so, state the context and original date."
+            )
+            # store buffer and async task separately
+            frames.append(buffer)
+            tasks.append(vision_model.generate_content_async([prompt, pil_img]))
 
-             # Create a task for the AI to analyze this frame
-            prompt = "Analyze this image from a video. Describe the key visual elements. Is this image related to a known news event? If so, state the context and original date of the event."
-            task = vision_model.generate_content_async([prompt, pil_img])
-            tasks.append((buffer, task)) # Store buffer for base64 encoding later
-            # Convert to base64 to easily send in JSON
-            
-    
     video.release()
+
+    # gather all AI responses
+    responses = await asyncio.gather(*tasks)
+
+    # pair each frame with its response
     results = []
-    responses = await asyncio.gather(*[task for _, task in tasks])
-    
-    for (buffer, response) in zip(tasks, responses):
-        jpg_as_text = base64.b64encode(buffer[0]).decode('utf-8')
+    for buffer, response in zip(frames, responses):
+        jpg_as_text = base64.b64encode(buffer).decode("utf-8")
         results.append({
             "keyframe_base64": jpg_as_text,
-            "context": response.text
+            "context": response.text.strip() if response.text else "No context generated."
         })
-        
     return results
 
 async def get_transcript_from_youtube(video_url: str, proxies=None) -> str:
@@ -275,14 +277,15 @@ async def get_transcript_from_youtube(video_url: str, proxies=None) -> str:
         raise HTTPException(status_code=500, detail=f"Transcript fetch failed: {type(e).__name__} - {e}")
 
 
-def get_transcript_from_other_platforms(video_url: str, proxy: str | None = None) -> str:
+def transcribe_video(video_path: str | None = None, video_url: str | None = None, proxy: str | None = None) -> str:
     """
-    Downloads audio, uploads to GCS, transcribes with Google Speech-to-Text.
+    Downloads audio from video_url or uses local video_path, uploads to GCS, transcribes with Google Speech-to-Text.
     """
     if not GCS_BUCKET_NAME:
         raise HTTPException(status_code=500, detail="Server is not configured for GCS.")
 
-    print(f"Non-YouTube URL detected ({urlparse(video_url).hostname}), using Google Cloud Speech-to-Text...")
+    hostname = urlparse(video_url).hostname if video_url else None
+    print(f"Transcribing video using Google Cloud Speech-to-Text...")
     output_template = os.path.join(tempfile.gettempdir(), '%(id)s.%(ext)s')
 
     ydl_opts = {
@@ -292,16 +295,31 @@ def get_transcript_from_other_platforms(video_url: str, proxy: str | None = None
         'quiet': True,
     }
 
+    if proxy and video_url:
+        ydl_opts['proxy'] = proxy
+
     audio_file_path = None
     gcs_blob_name = None
 
     try:
-        # --- 1. Download Audio (Same as before) ---
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info_dict = ydl.extract_info(video_url, download=True)
-            base_filename = os.path.splitext(ydl.prepare_filename(info_dict))[0]
-            audio_file_path = base_filename + '.mp3'
+        if video_path:
+            # Use local video file
+            print(f"Using local video file: {video_path}")
+            # Extract audio from local file using ffmpeg
+            import subprocess
+            audio_file_path = video_path.replace('.webm', '.mp3').replace('.mp4', '.mp3').replace('.mkv', '.mp3')
+            if not audio_file_path.endswith('.mp3'):
+                audio_file_path = video_path + '.mp3'
+            subprocess.run(['ffmpeg', '-i', video_path, '-q:a', '0', '-map', 'a', audio_file_path], check=True)
             gcs_blob_name = os.path.basename(audio_file_path)
+        elif video_url:
+            # Download from URL
+            print(f"Downloading audio from {video_url}...")
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info_dict = ydl.extract_info(video_url, download=True)
+                base_filename = os.path.splitext(ydl.prepare_filename(info_dict))[0]
+                audio_file_path = base_filename + '.mp3'
+                gcs_blob_name = os.path.basename(audio_file_path)
 
         if not os.path.exists(audio_file_path):
              raise FileNotFoundError(f"FFmpeg failed to create audio file: {audio_file_path}")
@@ -360,9 +378,11 @@ def get_transcript_from_other_platforms(video_url: str, proxy: str | None = None
 def download_video(url, proxy: str | None = None):
     output_template = os.path.join(tempfile.gettempdir(), '%(id)s.%(ext)s')
     ydl_opts = {
-        'format': 'best',
+        'format': 'best',  # Use best available format
         'outtmpl': output_template,
         'quiet': True,
+        'age_limit': 99,  # Allow age-restricted videos
+        'socket_timeout': 30,
     }
 
     # --- Add this ---
@@ -391,18 +411,24 @@ async def analyze_video_url(url: str) -> tuple[str, str | None]:
     transcript_text = ""
     proxy_str = None # Variable to hold the proxy string
 
+    
+
     # Helper function to get the proxy string just once
     async def get_proxy():
         nonlocal proxy_str
         if proxy_str is None: # Only fetch if we haven't already
-            proxy_dict = await get_proxy_for_request()
-            if proxy_dict:
-                proxy_str = proxy_dict.get("http://") # Get string for yt-dlp
-                print(f"Using proxy: {proxy_str}")
-            else:
-                print("No working proxy available.")
-                proxy_str = "" # Set to empty to prevent re-fetching
-        return proxy_str if proxy_str else None # Return None if empty
+#             proxy_dict = await get_proxy_for_request()
+# -            if proxy_dict:
+# -                proxy_str = proxy_dict.get("http://") # Get string for yt-dlp
+# -                print(f"Using proxy: {proxy_str}")
+# -            else:
+# -                print("No working proxy available.")
+# -                proxy_str = "" # Set to empty to prevent re-fetching
+# -        return proxy_str if proxy_str else None # Return None if empty
+            
+            # Skip proxies for localhost testing
+            proxy_str = None
+        return proxy_str
 
     try:
         if "youtube.com" in hostname or "youtu.be" in hostname:
@@ -426,13 +452,17 @@ async def analyze_video_url(url: str) -> tuple[str, str | None]:
                 # Get proxy
                 proxy = await get_proxy()
 
-                # Download video (for visual context) using proxy
-                video_path = download_video(url, proxy=proxy)
+                # Download video (for visual context) without proxy (YouTube may block proxies)
+                try:
+                    video_path = download_video(url, proxy=None)
+                except Exception as download_e:
+                    print(f"Video download failed: {download_e}, proceeding without visual context.")
+                    video_path = None
 
                 # Download audio (for transcription) using proxy
                 # We run this in a thread as it's a blocking I/O operation
                 transcript_text = await asyncio.to_thread(
-                    get_transcript_from_other_platforms, url, proxy=proxy
+                    transcribe_video, video_url=url, proxy=proxy
                 )
 
         else:
@@ -447,7 +477,7 @@ async def analyze_video_url(url: str) -> tuple[str, str | None]:
 
             # Download audio and transcribe (in thread)
             transcript_text = await asyncio.to_thread(
-                get_transcript_from_other_platforms, url, proxy=proxy
+                transcribe_video, video_url=url, proxy=proxy
             )
 
         return transcript_text, video_path
