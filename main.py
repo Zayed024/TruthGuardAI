@@ -6,11 +6,11 @@ load_dotenv()  # Load environment variables early
 import google.generativeai as genai
 from google.cloud import firestore
 from fastapi import FastAPI, HTTPException, UploadFile, File,Security,Depends
-from fastapi.security import APIKeyHeader
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import firebase_admin
-from firebase_admin import credentials, firestore
+from firebase_admin import auth, credentials
 
 import json
 import re
@@ -26,48 +26,48 @@ import wikipediaapi
 import io
 from google.cloud import vision
 from newsapi import NewsApiClient
-from PIL import Image 
+from PIL import Image
 from video_analyzer import update_working_proxies,analyze_video_url,download_video,get_visual_context
 
+# Initialize Firebase Admin SDK
+#cred = credentials.Certificate("path/to/your/firebase-service-account.json")  # Replace with actual path or env var
 firebase_admin.initialize_app()
+
 db = firestore.AsyncClient()
 
-API_KEY_HEADER = APIKeyHeader(name="x-api-key")
+# Use HTTPBearer for JWT tokens
+security = HTTPBearer()
 
-# --- 2. Load "Pro" keys from your environment ---
-# You can just put a comma-separated list in your .env file
-PRO_API_KEYS = set(os.environ.get("PRO_API_KEYS", "").split(','))
-
-
-# --- 3. Create a dependency to check the key ---
-# Add this new function to main.py
-async def get_api_tier(api_key: str = Security(API_KEY_HEADER)):
+# --- 3. Create a dependency to verify JWT and get user tier ---
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
     """
-    Checks a key against the Firestore database and returns its tier.
+    Verifies the Firebase JWT token and returns the user's tier from Firestore.
     This is the "lock" for our API.
     """
-    if not api_key:
-        raise HTTPException(status_code=401, detail="API Key is missing")
-
-    # Allow test key for localhost testing
-    if api_key == "test_key":
-        return "pro"
-
     try:
-        # Fetch the key document from Firestore
-        key_doc_ref = db.collection('apikeys').document(api_key)
-        key_doc = await key_doc_ref.get()
+        # Verify the JWT token with Firebase
+        decoded_token = auth.verify_id_token(credentials.credentials)
+        uid = decoded_token['uid']
 
-        if not key_doc.exists:
-            raise HTTPException(status_code=401, detail="Invalid API Key")
-        
-        # We found the key! Return its tier.
-        tier = key_doc.to_dict().get("tier", "free")
-        return tier
+        # Fetch user data from Firestore to get tier
+        user_doc_ref = db.collection('users').document(uid)
+        user_doc = await user_doc_ref.get()
 
+        if not user_doc.exists:
+            raise HTTPException(status_code=401, detail="User not found")
+
+        user_data = user_doc.to_dict()
+        tier = user_data.get("tier", "free")  # Default to free if no tier set
+
+        return {"uid": uid, "tier": tier}
+
+    except auth.InvalidIdTokenError:
+        raise HTTPException(status_code=401, detail="Invalid authentication token")
+    except auth.ExpiredIdTokenError:
+        raise HTTPException(status_code=401, detail="Token has expired")
     except Exception as e:
         print(f"Auth error: {e}")
-        raise HTTPException(status_code=500, detail="Could not validate API key")
+        raise HTTPException(status_code=500, detail="Could not validate authentication")
 
 
 PLATFORM_DOMAINS = [
@@ -498,25 +498,27 @@ def read_health():
     return {"status": "TruthGuard AI v2 Backend is running!"}
 
 @app.post("/v2/analyze")
-async def analyze_v2(request: V2AnalysisRequest, api_tier: str = Depends(get_api_tier)):
-    
-    if api_tier == "free":
+async def analyze_v2(request: V2AnalysisRequest, user: dict = Depends(get_current_user)):
+
+    tier = user["tier"]
+
+    if tier == "free":
         # --- Run a "Lite" analysis (fast, cheap) ---
         #  just the basic AI summary without the agentic grounding
         prompt = f"Analyze this text: {request.text}"
         response = await text_model.generate_content_async(prompt)
         return {"initial_analysis": {"explanation": response.text}, "tier": "free"}
-    
-    elif api_tier == "pro":
+
+    elif tier == "pro":
         try:
             initial_analysis, source_analysis, claims_to_check, contradictions = await run_full_analysis(request.text, request.url)
-            
+
             fact_check_results = []
             if claims_to_check:
                 async with httpx.AsyncClient() as client:
                     fact_check_tasks = [run_fact_check(claim, client) for claim in claims_to_check]
                     fact_check_results = await asyncio.gather(*fact_check_tasks)
-                    
+
             final_response = {
                 "initial_analysis": initial_analysis,
                 "source_analysis": source_analysis,
@@ -529,10 +531,10 @@ async def analyze_v2(request: V2AnalysisRequest, api_tier: str = Depends(get_api
             raise HTTPException(status_code=500, detail=f"An error occurred: {type(e).__name__} - {e}")
 
     else:
-        raise HTTPException(status_code=403, detail="Unknown API tier")
+        raise HTTPException(status_code=403, detail="Unknown user tier")
     
 @app.post("/v2/upload_and_analyze_image")
-async def upload_and_analyze_image(file: UploadFile = File(...), api_tier: str = Depends(get_api_tier)):
+async def upload_and_analyze_image(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
     try:
         # Validate file type
         if not file.content_type.startswith('image/'):
@@ -618,7 +620,7 @@ async def upload_and_analyze_image(file: UploadFile = File(...), api_tier: str =
 
 
 @app.post("/v2/analyze_video")
-async def analyze_video_v2(request: V2VideoAnalysisRequest, api_tier: str = Depends(get_api_tier)):
+async def analyze_video_v2(request: V2VideoAnalysisRequest, user: dict = Depends(get_current_user)):
     video_path = None
     transcript_text = ""
     download_url = None
@@ -668,7 +670,7 @@ async def analyze_video_v2(request: V2VideoAnalysisRequest, api_tier: str = Depe
 
 
 @app.post("/v2/analyze_image")
-async def analyze_image_v2(request: V2ImageAnalysisRequest, api_tier: str = Depends(get_api_tier)):
+async def analyze_image_v2(request: V2ImageAnalysisRequest, user: dict = Depends(get_current_user)):
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get(request.image_url)

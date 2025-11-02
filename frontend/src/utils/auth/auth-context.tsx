@@ -86,6 +86,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const { doc, setDoc } = await import('firebase/firestore');
 
       await setDoc(doc(db, 'users', userCredential.user.uid), {
+        identifier: email,
+        tier: 'free',
+        role: 'user',
         email: email,
         name: name || '',
         isAdmin: false,
@@ -112,7 +115,28 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const signInWithGoogle = async () => {
     try {
       const provider = new GoogleAuthProvider();
-      await signInWithPopup(auth, provider);
+      const userCredential = await signInWithPopup(auth, provider);
+
+      // Check if user document exists, if not create it
+      const { db } = await import('../firebase');
+      const { doc, setDoc, getDoc } = await import('firebase/firestore');
+
+      const userDocRef = doc(db, 'users', userCredential.user.uid);
+      const userDoc = await getDoc(userDocRef);
+
+      if (!userDoc.exists()) {
+        await setDoc(userDocRef, {
+          identifier: userCredential.user.email || '',
+          tier: 'free',
+          role: 'user',
+          //email: userCredential.user.email || '',
+          name: userCredential.user.displayName || '',
+          isAdmin: false,
+          createdAt: new Date(),
+          analysesCount: 0,
+          lastActive: new Date(),
+        });
+      }
     } catch (error: any) {
       console.error('Google sign in error:', error);
       throw new Error(error.message || 'Failed to sign in with Google');

@@ -57,7 +57,7 @@ A scalable, serverless, and secure cloud-native product.
   Google Cloud Firestore manages API keys and user tiers ("free", "pro").
 
 - **Frontend (Client):**
-  Chrome Extension and Firebase-hosted web app (HTML, CSS, JavaScript)
+  Chrome Extension and Firebase-hosted React web app (TypeScript, Vite, Tailwind CSS)
 
 - **Backend (Server):**
   FastAPI (Python, async) on Google Cloud Run for scaling
@@ -81,7 +81,7 @@ Async Python backend handles thousands of concurrent users. "Grounded AI Fallbac
 
 ## 💻 Technology Stack
 
-- **Frontend:** HTML5, CSS3, JavaScript, Firebase Hosting
+- **Frontend:** React (TypeScript), Vite, Tailwind CSS, Firebase Hosting
 - **Backend:** Python, FastAPI (Async)
 - **AI & ML:** Gemini API (Pro & Flash), Google Cloud Speech-to-Text, Cloud Vision, scikit-learn, pandas, joblib
 - **External APIs:** NewsAPI, Google Fact Check Tools API, youtube-transcript-api, python-whois, wikipedia-api, yt-dlp
@@ -132,6 +132,22 @@ uvicorn main:app --reload
 
 ### 2. Frontend Setup
 
+**Navigate to the frontend directory:**
+```
+cd frontend
+```
+
+**Install dependencies:**
+```
+npm install
+```
+
+**Run the development server:**
+```
+npm run dev
+```
+
+**For the browser extension:**
 1. Open Chrome and go to `chrome://extensions`
 2. Enable "Developer mode"
 3. Click "Load unpacked" and select the extension folder.

@@ -12,6 +12,7 @@ import { Upload, Link, FileText, AlertTriangle, CheckCircle, XCircle, ExternalLi
 import { useAnalysisHistory } from '../../utils/auth/analysis-hooks';
 import { apiService } from '../../utils/api';
 import { toast } from 'sonner';
+import { useAuth } from '../../utils/auth/auth-context';
 
 interface AnalysisResult {
   initial_analysis: {
@@ -37,6 +38,7 @@ interface AnalysisResult {
 }
 
 export function AnalysisHub() {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('url');
   const [analysisInput, setAnalysisInput] = useState('');
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
@@ -81,8 +83,8 @@ export function AnalysisHub() {
         type: analysisType,
         title,
         content,
-        credibilityScore: data.initial_analysis.credibility_score,
-        status: data.initial_analysis.credibility_score > 70 ? 'verified' : data.initial_analysis.credibility_score > 40 ? 'questionable' : 'debunked',
+        credibilityScore: data.initial_analysis?.credibility_score ?? 0,
+        status: (data.initial_analysis?.credibility_score ?? 0) > 70 ? 'verified' : (data.initial_analysis?.credibility_score ?? 0) > 40 ? 'questionable' : 'debunked',
         date: new Date().toISOString().split('T')[0],
         timeSpent: 'N/A'
       });
@@ -283,8 +285,8 @@ export function AnalysisHub() {
                 <span>Analysis Results</span>
                 {/* Dynamically determine status from score */}
                 {getStatusBadge(
-                  result.initial_analysis.credibility_score > 70 ? 'verified' :
-                  result.initial_analysis.credibility_score > 40 ? 'questionable' : 'debunked'
+                  (result.initial_analysis?.credibility_score ?? 0) > 70 ? 'verified' :
+                  (result.initial_analysis?.credibility_score ?? 0) > 40 ? 'questionable' : 'debunked'
                 )}
               </CardTitle>
             </CardHeader>
@@ -293,35 +295,39 @@ export function AnalysisHub() {
               <div>
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-sm font-medium">Credibility Score</span>
-                  <span className={`text-2xl font-bold ${getScoreColor(result.initial_analysis.credibility_score)}`}>
-                    {result.initial_analysis.credibility_score}%
+                  <span className={`text-2xl font-bold ${getScoreColor(result.initial_analysis?.credibility_score ?? 0)}`}>
+                    {result.initial_analysis?.credibility_score ?? 0}%
                   </span>
                 </div>
-                <Progress value={result.initial_analysis.credibility_score} className="h-3" />
+                <Progress value={result.initial_analysis?.credibility_score ?? 0} className="h-3" />
               </div>
 
               <Separator />
 
               {/* Summary */}
-              <div>
-                <h4 className="font-semibold mb-2">Summary</h4>
-                <p className="text-muted-foreground">{result.initial_analysis.explanation}</p>
-              </div>
+              {result.initial_analysis && (
+                <div>
+                  <h4 className="font-semibold mb-2">Summary</h4>
+                  <p className="text-muted-foreground">{result.initial_analysis.explanation}</p>
+                </div>
+              )}
 
               <Separator />
 
               {/* Source Analysis */}
-              <div>
-                <h4 className="font-semibold mb-3">Source Analysis</h4>
-                <div className="flex items-center space-x-4">
-                  <Badge variant="outline">
-                    Bias: {result.source_analysis.political_bias}
-                  </Badge>
-                  <Badge variant="outline">
-                    Factuality: {result.source_analysis.factuality_rating}
-                  </Badge>
+              {result.source_analysis && (
+                <div>
+                  <h4 className="font-semibold mb-3">Source Analysis</h4>
+                  <div className="flex items-center space-x-4">
+                    <Badge variant="outline">
+                      Bias: {result.source_analysis.political_bias}
+                    </Badge>
+                    <Badge variant="outline">
+                      Factuality: {result.source_analysis.factuality_rating}
+                    </Badge>
+                  </div>
                 </div>
-              </div>
+              )}
 
               <Separator />
 

@@ -1,5 +1,6 @@
+import { auth } from './firebase';
+
 const API_BASE_URL = (import.meta as any).env?.DEV ? 'http://localhost:8000' : 'https://truthguardai-gateway-3xz6gfx0.an.gateway.dev';
-const API_KEY = 'fYL8x7T3EQ2Oovm7mZyU';
 
 interface ApiResponse<T> {
   data?: T;
@@ -9,10 +10,17 @@ interface ApiResponse<T> {
 class ApiService {
   private async request<T>(endpoint: string, options: RequestInit = {}): Promise<ApiResponse<T>> {
     try {
+      // Get Firebase ID token
+      const user = auth.currentUser;
+      if (!user) {
+        return { error: 'User not authenticated' };
+      }
+      const idToken = await user.getIdToken();
+
       const response = await fetch(`${API_BASE_URL}${endpoint}`, {
         headers: {
           'Content-Type': 'application/json',
-          'x-api-key': API_KEY,
+          'Authorization': `Bearer ${idToken}`,
           ...options.headers,
         },
         ...options,
@@ -53,17 +61,36 @@ class ApiService {
   }
 
   async uploadAndAnalyzeImage(file: File) {
-    const formData = new FormData();
-    formData.append('file', file);
+    try {
+      // Get Firebase ID token
+      const user = auth.currentUser;
+      if (!user) {
+        return { error: 'User not authenticated' };
+      }
+      const idToken = await user.getIdToken();
 
-    return this.request('/v2/upload_and_analyze_image', {
-      method: 'POST',
-      headers: {
-        'x-api-key': API_KEY,
-        // Don't set Content-Type, let browser set it with boundary
-      },
-      body: formData,
-    });
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch(`${API_BASE_URL}/v2/upload_and_analyze_image`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${idToken}`,
+          // Don't set Content-Type, let browser set it with boundary
+        },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+        return { error: errorData.detail || `HTTP ${response.status}: ${response.statusText}` };
+      }
+
+      const data = await response.json();
+      return { data };
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : 'Network error' };
+    }
   }
 
   // Analytics endpoints (these would need to be implemented in backend)
