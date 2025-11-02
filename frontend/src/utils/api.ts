@@ -1,6 +1,6 @@
 import { auth } from './firebase';
 
-const API_BASE_URL = (import.meta as any).env?.DEV ? 'http://localhost:8000' : 'https://truthguardai-gateway-3xz6gfx0.an.gateway.dev';
+const API_BASE_URL = (import.meta as any).env?.MODE === 'development' ? 'http://localhost:8000' : 'https://truthguardai-gateway-3xz6gfx0.an.gateway.dev';
 
 interface ApiResponse<T> {
   data?: T;
@@ -13,9 +13,11 @@ class ApiService {
       // Get Firebase ID token
       const user = auth.currentUser;
       if (!user) {
+        console.error('❌ No user authenticated');
         return { error: 'User not authenticated' };
       }
       const idToken = await user.getIdToken();
+      console.log(`🔍 Sending request to ${API_BASE_URL}${endpoint} with token prefix: ${idToken.substring(0, 20)}...`);
 
       const response = await fetch(`${API_BASE_URL}${endpoint}`, {
         headers: {
